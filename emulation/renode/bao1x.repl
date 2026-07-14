@@ -1,0 +1,129 @@
+// Baochip-1x (bao1x) platform for Renode.
+//
+// Sources of truth: baochip-1x RTL + xous-core utralib/bao1x/core.svd.
+// See docs/01-hardware-dossier.md for the full memory/interrupt map.
+//
+// Interrupt model: the VexRiscv 32-bit external interrupt array is exposed by
+// Renode's VexRiscv CPU as GPIO lines 0-31 (machine array, CSRs 0xBC0/0xFC0)
+// and 1000-1031 (supervisor array, CSRs 0x9C0/0xDC0). Real hardware feeds the
+// same physical line into both arrays, hence every source connects twice.
+// MTIP/MSIP are tied off in silicon: nothing connects to @100/@101.
+
+// --- Memories ---------------------------------------------------------------
+rram: Memory.MappedMemory @ sysbus 0x60000000
+    size: 0x400000
+
+sram: Memory.MappedMemory @ sysbus 0x61000000
+    size: 0x200000
+
+ifram0: Memory.MappedMemory @ sysbus 0x50000000
+    size: 0x20000
+
+ifram1: Memory.MappedMemory @ sysbus 0x50020000
+    size: 0x20000
+
+aoram: Memory.MappedMemory @ sysbus 0x50300000
+    size: 0x4000
+
+// --- CPU ---------------------------------------------------------------------
+// VexRiscv, CsrPluginConfig.linuxFull equivalent: M/S/U + Sv32.
+cpu: CPU.VexRiscv @ sysbus
+    cpuType: "rv32imac_zicsr_zifencei"
+    privilegedArchitecture: PrivilegedArchitecture.Priv1_10
+
+// --- Console -------------------------------------------------------------------
+duart: UART.Baochip.Bao1xDuart @ sysbus 0x40042000
+
+// --- Timers ---------------------------------------------------------------------
+// frequency: placeholder until phase 4 calibrates the real core-complex clock.
+timer0: Timers.Baochip.Bao1xLiteXTimer @ sysbus 0xE001C000
+    frequency: 100000000
+    IRQ -> cpu@30
+    SupervisorIRQ -> cpu@1030
+
+ticktimer: Timers.Baochip.Bao1xTickTimer @ sysbus 0xE001B000
+    IRQ -> cpu@20
+    SupervisorIRQ -> cpu@1020
+
+// --- IRQARRAY banks ------------------------------------------------------------
+// Bank number == external-irq array bit. Base addresses follow LiteX's
+// alphabetical CSR allocation (0,1,10..19,2..9) — do not "fix" the ordering.
+irqarray0: IRQControllers.Baochip.Bao1xIrqArray @ sysbus 0xE0004000
+    IRQ -> cpu@0
+    SupervisorIRQ -> cpu@1000
+
+irqarray1: IRQControllers.Baochip.Bao1xIrqArray @ sysbus 0xE0005000
+    IRQ -> cpu@1
+    SupervisorIRQ -> cpu@1001
+
+irqarray10: IRQControllers.Baochip.Bao1xIrqArray @ sysbus 0xE0006000
+    IRQ -> cpu@10
+    SupervisorIRQ -> cpu@1010
+
+irqarray11: IRQControllers.Baochip.Bao1xIrqArray @ sysbus 0xE0007000
+    IRQ -> cpu@11
+    SupervisorIRQ -> cpu@1011
+
+irqarray12: IRQControllers.Baochip.Bao1xIrqArray @ sysbus 0xE0008000
+    IRQ -> cpu@12
+    SupervisorIRQ -> cpu@1012
+
+irqarray13: IRQControllers.Baochip.Bao1xIrqArray @ sysbus 0xE0009000
+    IRQ -> cpu@13
+    SupervisorIRQ -> cpu@1013
+
+irqarray14: IRQControllers.Baochip.Bao1xIrqArray @ sysbus 0xE000A000
+    IRQ -> cpu@14
+    SupervisorIRQ -> cpu@1014
+
+irqarray15: IRQControllers.Baochip.Bao1xIrqArray @ sysbus 0xE000B000
+    IRQ -> cpu@15
+    SupervisorIRQ -> cpu@1015
+
+irqarray16: IRQControllers.Baochip.Bao1xIrqArray @ sysbus 0xE000C000
+    IRQ -> cpu@16
+    SupervisorIRQ -> cpu@1016
+
+irqarray17: IRQControllers.Baochip.Bao1xIrqArray @ sysbus 0xE000D000
+    IRQ -> cpu@17
+    SupervisorIRQ -> cpu@1017
+
+irqarray18: IRQControllers.Baochip.Bao1xIrqArray @ sysbus 0xE000E000
+    IRQ -> cpu@18
+    SupervisorIRQ -> cpu@1018
+
+irqarray19: IRQControllers.Baochip.Bao1xIrqArray @ sysbus 0xE000F000
+    IRQ -> cpu@19
+    SupervisorIRQ -> cpu@1019
+
+irqarray2: IRQControllers.Baochip.Bao1xIrqArray @ sysbus 0xE0010000
+    IRQ -> cpu@2
+    SupervisorIRQ -> cpu@1002
+
+irqarray3: IRQControllers.Baochip.Bao1xIrqArray @ sysbus 0xE0011000
+    IRQ -> cpu@3
+    SupervisorIRQ -> cpu@1003
+
+irqarray4: IRQControllers.Baochip.Bao1xIrqArray @ sysbus 0xE0012000
+    IRQ -> cpu@4
+    SupervisorIRQ -> cpu@1004
+
+irqarray5: IRQControllers.Baochip.Bao1xIrqArray @ sysbus 0xE0013000
+    IRQ -> cpu@5
+    SupervisorIRQ -> cpu@1005
+
+irqarray6: IRQControllers.Baochip.Bao1xIrqArray @ sysbus 0xE0014000
+    IRQ -> cpu@6
+    SupervisorIRQ -> cpu@1006
+
+irqarray7: IRQControllers.Baochip.Bao1xIrqArray @ sysbus 0xE0015000
+    IRQ -> cpu@7
+    SupervisorIRQ -> cpu@1007
+
+irqarray8: IRQControllers.Baochip.Bao1xIrqArray @ sysbus 0xE0016000
+    IRQ -> cpu@8
+    SupervisorIRQ -> cpu@1008
+
+irqarray9: IRQControllers.Baochip.Bao1xIrqArray @ sysbus 0xE0017000
+    IRQ -> cpu@9
+    SupervisorIRQ -> cpu@1009

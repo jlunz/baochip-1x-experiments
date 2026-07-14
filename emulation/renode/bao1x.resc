@@ -1,0 +1,25 @@
+:name: bao1x
+:description: Baochip-1x machine (see docs/01-hardware-dossier.md)
+
+# Usage:
+#   renode emulation/renode/bao1x.resc                       (interactive)
+#   $bin=@path/to/image.elf renode ... (or set $bin before including)
+
+using sysbus
+path add $ORIGIN
+mach create "bao1x"
+
+# Custom peripheral models must be compiled before the platform loads
+i @peripherals/Bao1xDuart.cs
+i @peripherals/Bao1xIrqArray.cs
+i @peripherals/Bao1xLiteXTimer.cs
+i @peripherals/Bao1xTickTimer.cs
+
+machine LoadPlatformDescription @bao1x.repl
+
+macro reset
+"""
+    sysbus LoadELF $bin
+"""
+
+runMacro $reset

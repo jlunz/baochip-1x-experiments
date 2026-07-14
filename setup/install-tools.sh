@@ -29,6 +29,7 @@ EMU_DEPS=(
     dtc                  # device tree compiler
     verilator            # optional: full-chip RTL sim ground truth
     python3 python3-pip  # uf2/signing tooling
+    python3-devel python3-psutil  # renode-test (Robot) native deps
 )
 
 sudo dnf install -y "${KERNEL_BUILD_DEPS[@]}" "${BUILDROOT_DEPS[@]}" "${EMU_DEPS[@]}"
@@ -46,5 +47,8 @@ else
     echo "Renode already present in tools/renode — skipping"
 fi
 "$RENODE_DIR/renode" --version || true
+
+# renode-test (Robot Framework) dependencies
+pip install --user -r "$RENODE_DIR/tests/requirements.txt"
 
 echo "=== Done. Next: setup/fetch-sources.sh ==="
