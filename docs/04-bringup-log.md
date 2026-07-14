@@ -20,3 +20,17 @@ Newest entries at the bottom. Every experiment, measurement, and surprise goes h
 - Repo initialized; plan approved by user (see 02-port-design.md).
 
 Environment: Fedora host (kernel 7.1.3-100.fc43), no cross toolchain installed yet.
+
+### XIP archaeology (kernel base selection)
+
+- Breaking commit `a44fb5722199` = "riscv: Add runtime constant support" (Charlie Jenkins):
+  runtime constants patch kernel *text* at boot — impossible when text is in ROM. Explains
+  the breakage class, and the eventual fix (fall back to plain loads under `XIP_KERNEL`).
+- GitHub compare API: `a44fb5722199` is **in v6.15, not in v6.14** → **v6.14 = last mainline
+  release with working XIP**. Chosen as the phase 1–4 base tag; forward-port to HEAD is
+  phase 6 (includes reverting the 7.1-era removal + the runtime-const fix).
+- v6.14 `arch/riscv/Kconfig`: `XIP_KERNEL` depends on `MMU && SPARSEMEM && NONPORTABLE`
+  — no 64-bit restriction, so rv32+XIP is Kconfig-legal out of the box.
+- QEMU phase-1 scaffolding: OpenSBI `fw_jump` (rv32, jump target = pflash base 0x2000_0000)
+  boots the xipImage placed in `-drive if=pflash`; added opensbi to fetch-sources.sh.
+  (The real board never uses OpenSBI — see 02-port-design.md.)

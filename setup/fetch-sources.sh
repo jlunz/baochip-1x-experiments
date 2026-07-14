@@ -30,4 +30,8 @@ clone https://github.com/betrusted-io/xous-core.git xous-core --depth 1
 # The chip RTL: ground truth for registers and interrupt wiring.
 clone https://github.com/baochip/baochip-1x.git baochip-1x --depth 1
 
+# OpenSBI: only used as M-mode scaffolding for the QEMU rv32 XIP feasibility
+# test (fw_jump into pflash). The real board uses firmware/bao1x-sbi instead.
+clone https://github.com/riscv-software-src/opensbi.git opensbi --depth 1
+
 echo "=== All sources present under sources/ ==="

@@ -35,7 +35,7 @@ sudo dnf install -y "${KERNEL_BUILD_DEPS[@]}" "${BUILDROOT_DEPS[@]}" "${EMU_DEPS
 
 # --- Renode (not packaged in Fedora) ---------------------------------------
 # Portable build into tools/renode; pinned version for reproducibility.
-RENODE_VERSION=1.16.0
+RENODE_VERSION=1.16.1
 RENODE_DIR="$(dirname "$0")/../tools/renode"
 if [ ! -x "$RENODE_DIR/renode" ]; then
     echo "=== Installing Renode $RENODE_VERSION (portable) into tools/renode ==="
