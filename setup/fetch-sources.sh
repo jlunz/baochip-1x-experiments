@@ -34,4 +34,8 @@ clone https://github.com/baochip/baochip-1x.git baochip-1x --depth 1
 # test (fw_jump into pflash). The real board uses firmware/bao1x-sbi instead.
 clone https://github.com/riscv-software-src/opensbi.git opensbi --depth 1
 
+# Nicolas Pitre's cramfs-tools: mkcramfs with XIP direct-pointer support
+# (mainline cramfs XIP, v4.15+). Used to build the XIP rootfs images.
+clone https://github.com/npitre/cramfs-tools.git cramfs-tools --depth 1
+
 echo "=== All sources present under sources/ ==="

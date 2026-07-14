@@ -1,0 +1,17 @@
+# Phase 1 rootfs: minimal static-busybox userspace for rv32.
+# ISA deliberately matches the bao1x floor (rv32imac, soft-float) so the same
+# userspace carries through phases 3-4 unchanged.
+BR2_riscv=y
+BR2_RISCV_32=y
+BR2_RISCV_ISA_CUSTOM=y
+BR2_RISCV_ISA_CUSTOM_RVM=y
+BR2_RISCV_ISA_CUSTOM_RVA=y
+BR2_RISCV_ISA_CUSTOM_RVC=y
+BR2_TOOLCHAIN_BUILDROOT_MUSL=y
+BR2_STATIC_LIBS=y
+BR2_TARGET_GENERIC_HOSTNAME="dabao"
+BR2_TARGET_GENERIC_ISSUE="bao1x mainline Linux (phase 1)"
+BR2_SYSTEM_BIN_SH_BUSYBOX=y
+# Plain tar; the XIP cramfs image is produced by emulation/qemu/build-rootfs.sh
+# with npitre cramfs-tools (buildroot's own cramfs support lacks XIP pointers).
+BR2_TARGET_ROOTFS_TAR=y
