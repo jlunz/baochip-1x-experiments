@@ -1,0 +1,146 @@
+From 4df35e14e2417920467130ecb67aa76baf88627b Mon Sep 17 00:00:00 2001
+From: Claude <noreply@anthropic.com>
+Date: Tue, 14 Jul 2026 19:39:34 +0200
+Subject: [PATCH 6/6] riscv: allow the XIP kernel entry at an offset inside the
+ flash window
+
+XIP_PHYS_ADDR must remain PMD-aligned so the kernel text can be
+superpage-mapped, but some parts place an immutable boot ROM at the
+bottom of the only suitably aligned flash window. One example is the
+Baochip BAO1X2S4F: its 4 MiB RRAM at 0x60000000 is the only PMD-aligned
+window and its first 0x60000 bytes hold the factory boot stages.
+
+Introduce XIP_KERNEL_ENTRY_OFFSET (default 0), which links and stores
+the kernel image at an offset inside the window while keeping the
+window base as the mapping origin:
+
+ - the linker script keeps _xiprom at the window base and starts
+   HEAD_TEXT at the offset, so virtual/physical superpage congruence is
+   preserved;
+ - all places that used _start to mean "flash window base" (the
+   XIP_FIXUP C macro, the relocation offset in relocate_enable_mmu, the
+   data-VA and size computations in setup_vm) now use _xiprom.
+
+The bytes below the offset are never referenced by the kernel.
+
+Verified on qemu rv32 virt with XIP_PHYS_ADDR=0x20000000 and
+XIP_KERNEL_ENTRY_OFFSET=0x70000: boots to a busybox login.
+
+Co-developed-by: Claude <noreply@anthropic.com>
+---
+ arch/riscv/Kconfig                  | 12 ++++++++++++
+ arch/riscv/include/asm/pgtable.h    |  6 +++---
+ arch/riscv/kernel/head.S            |  9 +++++++++
+ arch/riscv/kernel/vmlinux-xip.lds.S |  5 +++++
+ arch/riscv/mm/init.c                |  6 +++---
+ 5 files changed, 32 insertions(+), 6 deletions(-)
+
+diff --git a/arch/riscv/Kconfig b/arch/riscv/Kconfig
+index 7612c52e9..3378150d3 100644
+--- a/arch/riscv/Kconfig
++++ b/arch/riscv/Kconfig
+@@ -1248,6 +1248,18 @@ config XIP_PHYS_ADDR
+ 	  be linked for and stored to.  This address is dependent on your
+ 	  own flash usage.
+ 
++config XIP_KERNEL_ENTRY_OFFSET
++	hex "XIP kernel entry offset inside the flash window"
++	depends on XIP_KERNEL
++	default "0x0"
++	help
++	  Offset of the kernel image inside the XIP flash window. The window
++	  itself (XIP_PHYS_ADDR) must stay PMD-aligned so the kernel can be
++	  superpage-mapped, but on some parts the beginning of that window is
++	  occupied by an immutable boot ROM; the kernel image is then linked
++	  and stored at this offset inside the window. The bytes below the
++	  offset are never referenced by the kernel.
++
+ config RISCV_ISA_FALLBACK
+ 	bool "Permit falling back to parsing riscv,isa for extension support by default"
+ 	default y
+diff --git a/arch/riscv/include/asm/pgtable.h b/arch/riscv/include/asm/pgtable.h
+index 050fdc49b..bde24a19c 100644
+--- a/arch/riscv/include/asm/pgtable.h
++++ b/arch/riscv/include/asm/pgtable.h
+@@ -136,11 +136,11 @@
+ 
+ #ifdef CONFIG_XIP_KERNEL
+ #define XIP_FIXUP(addr) ({							\
+-	extern char _sdata[], _start[], _end[];					\
++	extern char _sdata[], _xiprom[], _end[];				\
+ 	uintptr_t __rom_start_data = CONFIG_XIP_PHYS_ADDR			\
+-				+ (uintptr_t)&_sdata - (uintptr_t)&_start;	\
++				+ (uintptr_t)&_sdata - (uintptr_t)&_xiprom;	\
+ 	uintptr_t __rom_end_data = CONFIG_XIP_PHYS_ADDR				\
+-				+ (uintptr_t)&_end - (uintptr_t)&_start;	\
++				+ (uintptr_t)&_end - (uintptr_t)&_xiprom;	\
+ 	uintptr_t __a = (uintptr_t)(addr);					\
+ 	(__a >= __rom_start_data && __a < __rom_end_data) ?			\
+ 		__a - __rom_start_data + CONFIG_PHYS_RAM_BASE :	__a;		\
+diff --git a/arch/riscv/kernel/head.S b/arch/riscv/kernel/head.S
+index c1e02bd00..4c50bfa49 100644
+--- a/arch/riscv/kernel/head.S
++++ b/arch/riscv/kernel/head.S
+@@ -76,7 +76,16 @@ relocate_enable_mmu:
+ 	la a1, kernel_map
+ 	XIP_FIXUP_OFFSET a1
+ 	REG_L a1, KERNEL_MAP_VIRT_ADDR(a1)
++#ifdef CONFIG_XIP_KERNEL
++	/*
++	 * virt_addr corresponds to the flash window base (_xiprom), which the
++	 * entry point may sit at an offset into; _start is not linked at
++	 * virt_addr in that case.
++	 */
++	la a2, _xiprom
++#else
+ 	la a2, _start
++#endif
+ 	sub a1, a1, a2
+ 	add ra, ra, a1
+ 
+diff --git a/arch/riscv/kernel/vmlinux-xip.lds.S b/arch/riscv/kernel/vmlinux-xip.lds.S
+index a7611789b..3f85185b0 100644
+--- a/arch/riscv/kernel/vmlinux-xip.lds.S
++++ b/arch/riscv/kernel/vmlinux-xip.lds.S
+@@ -26,6 +26,11 @@ SECTIONS
+ 	/* Beginning of code and text segment */
+ 	. = LOAD_OFFSET;
+ 	_xiprom = .;
++	/*
++	 * The entry point may sit at an offset inside the (PMD-aligned) flash
++	 * window, for parts whose flash begins with an immutable boot ROM.
++	 */
++	. = LOAD_OFFSET + CONFIG_XIP_KERNEL_ENTRY_OFFSET;
+ 	_start = .;
+ 	HEAD_TEXT_SECTION
+ 	INIT_TEXT_SECTION(PAGE_SIZE)
+diff --git a/arch/riscv/mm/init.c b/arch/riscv/mm/init.c
+index cf9e81053..cde387464 100644
+--- a/arch/riscv/mm/init.c
++++ b/arch/riscv/mm/init.c
+@@ -955,7 +955,7 @@ static void __init create_kernel_page_table(pgd_t *pgdir,
+ 				   PMD_SIZE, PAGE_KERNEL_EXEC);
+ 
+ 	/* Map the data in RAM */
+-	start_va = kernel_map.virt_addr + (uintptr_t)&_sdata - (uintptr_t)&_start;
++	start_va = kernel_map.virt_addr + (uintptr_t)&_sdata - (uintptr_t)&_xiprom;
+ 	end_va = kernel_map.virt_addr + kernel_map.size;
+ 	for (va = start_va; va < end_va; va += PMD_SIZE)
+ 		create_pgd_mapping(pgdir, va,
+@@ -1131,11 +1131,11 @@ asmlinkage void __init setup_vm(uintptr_t dtb_pa)
+ 	vmemmap_start_pfn = round_down(phys_ram_base, VMEMMAP_ADDR_ALIGN) >> PAGE_SHIFT;
+ #endif
+ 	kernel_map.phys_addr = (uintptr_t)CONFIG_PHYS_RAM_BASE;
+-	kernel_map.size = (uintptr_t)(&_end) - (uintptr_t)(&_start);
++	kernel_map.size = (uintptr_t)(&_end) - (uintptr_t)(&_xiprom);
+ 
+ 	kernel_map.va_kernel_xip_text_pa_offset = kernel_map.virt_addr - kernel_map.xiprom;
+ 	kernel_map.va_kernel_xip_data_pa_offset = kernel_map.virt_addr - kernel_map.phys_addr
+-						+ (uintptr_t)&_sdata - (uintptr_t)&_start;
++						+ (uintptr_t)&_sdata - (uintptr_t)&_xiprom;
+ #else
+ 	kernel_map.page_offset = _AC(CONFIG_PAGE_OFFSET, UL);
+ 	kernel_map.phys_addr = (uintptr_t)(&_start);
+-- 
+2.55.0
+

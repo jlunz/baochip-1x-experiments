@@ -33,7 +33,7 @@ ls -la "$OUT/kernel/arch/riscv/boot/xipImage"
 if [ ! -f "$OUT/opensbi/platform/generic/firmware/fw_jump.bin" ]; then
     make -C "$SRC/opensbi" O="$OUT/opensbi" \
         CROSS_COMPILE=$CROSS PLATFORM=generic PLATFORM_RISCV_XLEN=32 \
-        FW_JUMP_ADDR=0x20000000 FW_JUMP_FDT_ADDR=0x80180000 -j"$JOBS"
+        FW_JUMP_ADDR=0x20070000 FW_JUMP_FDT_ADDR=0x80180000 -j"$JOBS"
 fi
 ls -la "$OUT/opensbi/platform/generic/firmware/fw_jump.bin"
 

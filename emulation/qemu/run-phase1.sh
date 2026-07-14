@@ -13,7 +13,7 @@ MEM="${MEM:-16M}"
 for img in kernel-flash rootfs-flash; do
     [ -f "$OUT/$img.img" ] || truncate -s 32M "$OUT/$img.img"
 done
-dd if="$OUT/kernel/arch/riscv/boot/xipImage" of="$OUT/kernel-flash.img" conv=notrunc status=none
+dd if="$OUT/kernel/arch/riscv/boot/xipImage" of="$OUT/kernel-flash.img" bs=4096 seek=112 conv=notrunc status=none  # entry at +0x70000, like bao1x
 # Without a rootfs image yet, boot still proves XIP up to the mount panic.
 [ -f "$OUT/rootfs.cramfs" ] && \
     dd if="$OUT/rootfs.cramfs" of="$OUT/rootfs-flash.img" conv=notrunc status=none
