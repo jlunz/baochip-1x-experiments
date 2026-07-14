@@ -12,15 +12,17 @@ KERNEL_TAG=v6.14
 
 mkdir -p "$OUT"
 
-# --- Kernel worktree pinned at the last-good-XIP tag ---------------------
-if [ ! -d "$SRC/linux-phase1" ]; then
-    git -C "$SRC/linux" worktree add "$SRC/linux-phase1" "$KERNEL_TAG"
+# --- Kernel tree is shallow-cloned at the last-good-XIP tag ----------------
+ACTUAL=$(git -C "$SRC/linux" describe --tags --always)
+if [ "$ACTUAL" != "$KERNEL_TAG" ]; then
+    echo "WARNING: sources/linux is at $ACTUAL, expected $KERNEL_TAG" >&2
 fi
 
 # --- Kernel: tinyconfig + phase-1 fragment --------------------------------
-cd "$SRC/linux-phase1"
+cd "$SRC/linux"
 make ARCH=riscv CROSS_COMPILE=$CROSS O="$OUT/kernel" tinyconfig
-./scripts/kconfig/merge_config.sh -O "$OUT/kernel" \
+# ARCH must be exported or merge_config validates the fragment against x86
+ARCH=riscv CROSS_COMPILE=$CROSS ./scripts/kconfig/merge_config.sh -O "$OUT/kernel" \
     "$OUT/kernel/.config" "$TOP/linux/configs/phase1-qemu-virt-xip.config"
 make ARCH=riscv CROSS_COMPILE=$CROSS O="$OUT/kernel" olddefconfig
 make ARCH=riscv CROSS_COMPILE=$CROSS O="$OUT/kernel" -j"$JOBS" xipImage

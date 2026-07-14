@@ -24,9 +24,7 @@ fi
 ROOTDIR="$BROUT/rootfs-xip"
 rm -rf "$ROOTDIR" && mkdir -p "$ROOTDIR"
 tar -xf "$BROUT/images/rootfs.tar" -C "$ROOTDIR"
-# Mark executables for XIP (uncompressed, page-aligned direct pointers):
-# cramfs XIPs files with the sticky bit set (S_ISVTX) when using -X? — see
-# cramfs-tools README; adjusted after first inspection. Baseline: busybox.
-"$OUT/mkcramfs" -X "$ROOTDIR" "$OUT/rootfs.cramfs" || \
-"$OUT/mkcramfs" "$ROOTDIR" "$OUT/rootfs.cramfs"
+# -X -X: align read-only ELF segments for XIP with MMU-grade (page) alignment
+# (per cramfs-tools README; single -X is for NOMMU 8-byte alignment).
+"$OUT/mkcramfs" -X -X "$ROOTDIR" "$OUT/rootfs.cramfs"
 ls -la "$OUT/rootfs.cramfs"

@@ -1,0 +1,100 @@
+From 3f26f6d0f8a6ef0821c79348e86f73c21a8daec4 Mon Sep 17 00:00:00 2001
+From: Claude <noreply@anthropic.com>
+Date: Tue, 14 Jul 2026 19:22:59 +0200
+Subject: [PATCH 4/5] riscv: mm: make the linear mapping consistent on 32-bit
+ XIP
+
+On 32-bit XIP three related assumptions about the linear mapping are
+wrong:
+
+ - kernel_map.va_pa_offset is set to PAGE_OFFSET - kernel_map.phys_addr,
+   pretending RAM is mapped from PAGE_OFFSET up. On XIP, PAGE_OFFSET maps
+   the flash-resident text; RAM-backed virtual addresses only start at
+   the data section VA. All linear __pa()/__va() translations come out
+   4 MiB (the in-flash image size, PMD-aligned) short, e.g. the satp
+   written in setup_vm_final() points 4 MiB past swapper_pg_dir.
+
+ - is_linear_mapping() classifies every address above PAGE_OFFSET as
+   linear, so the XIP-aware kernel_mapping_va_to_pa() is never used for
+   kernel text addresses.
+
+ - memory below CONFIG_PHYS_RAM_BASE stays in memblock. Its linear
+   addresses then collide with the kernel image VAs: the first pass of
+   create_linear_mapping_page_table() populates the PGD entries covering
+   the kernel text with 4K page tables of that low RAM, and the
+   create_kernel_page_table() superpage install silently no-ops because
+   the entries are no longer empty (create_pgd_mapping() only writes
+   empty slots), leaving the text unmapped.
+
+Set va_pa_offset to the data offset on 32-bit XIP, derive the
+is_linear_mapping() lower bound from phys_ram_base + va_pa_offset
+(identical behaviour everywhere else), and drop memblock memory below
+the configured RAM window.
+
+Co-developed-by: Claude <noreply@anthropic.com>
+---
+ arch/riscv/include/asm/page.h |  9 ++++++++-
+ arch/riscv/mm/init.c          | 19 +++++++++++++++++++
+ 2 files changed, 27 insertions(+), 1 deletion(-)
+
+diff --git a/arch/riscv/include/asm/page.h b/arch/riscv/include/asm/page.h
+index 125f5ecd9..6fae9ffdf 100644
+--- a/arch/riscv/include/asm/page.h
++++ b/arch/riscv/include/asm/page.h
+@@ -127,8 +127,15 @@ extern unsigned long vmemmap_start_pfn;
+ #define is_kernel_mapping(x)	\
+ 	((x) >= kernel_map.virt_addr && (x) < (kernel_map.virt_addr + kernel_map.size))
+ 
++/*
++ * The linear mapping starts at __va(phys_ram_base), which equals PAGE_OFFSET
++ * everywhere except on 32-bit XIP, where the first part of the kernel VA
++ * space maps the flash-resident text and the linear mapping only starts at
++ * the data section VA.
++ */
+ #define is_linear_mapping(x)	\
+-	((x) >= PAGE_OFFSET && (!IS_ENABLED(CONFIG_64BIT) || (x) < PAGE_OFFSET + KERN_VIRT_SIZE))
++	((x) >= phys_ram_base + kernel_map.va_pa_offset && \
++	 (!IS_ENABLED(CONFIG_64BIT) || (x) < PAGE_OFFSET + KERN_VIRT_SIZE))
+ 
+ #ifndef CONFIG_DEBUG_VIRTUAL
+ #define linear_mapping_pa_to_va(x)	((void *)((unsigned long)(x) + kernel_map.va_pa_offset))
+diff --git a/arch/riscv/mm/init.c b/arch/riscv/mm/init.c
+index 486ad0ece..cf9e81053 100644
+--- a/arch/riscv/mm/init.c
++++ b/arch/riscv/mm/init.c
+@@ -244,6 +244,16 @@ static void __init setup_bootmem(void)
+ 	 */
+ 	memblock_reserve(vmlinux_start, vmlinux_end - vmlinux_start);
+ 
++	/*
++	 * The XIP kernel occupies a fixed RAM window starting at
++	 * CONFIG_PHYS_RAM_BASE. On 32-bit, the linear mapping of any RAM
++	 * below that window would collide with the kernel image virtual
++	 * addresses (the kernel sits at the bottom of the kernel/linear
++	 * shared VA space), so drop such memory entirely.
++	 */
++	if (IS_ENABLED(CONFIG_XIP_KERNEL) && !IS_ENABLED(CONFIG_64BIT))
++		memblock_remove(0, phys_ram_base);
++
+ 	/*
+ 	 * Make sure we align the start of the memory on a PMD boundary so that
+ 	 * at worst, we map the linear mapping with PMD mappings.
+@@ -1152,6 +1162,15 @@ asmlinkage void __init setup_vm(uintptr_t dtb_pa)
+ 	 */
+ 	kernel_map.va_pa_offset = IS_ENABLED(CONFIG_64BIT) ?
+ 				0UL : PAGE_OFFSET - kernel_map.phys_addr;
++#if defined(CONFIG_XIP_KERNEL) && !defined(CONFIG_64BIT)
++	/*
++	 * In 32-bit XIP, the linear mapping cannot start at PAGE_OFFSET:
++	 * that VA range maps the flash-resident text. RAM (which holds the
++	 * data section at its very start) is mapped from the data VA up, so
++	 * the linear mapping offset must skip the in-flash part of the image.
++	 */
++	kernel_map.va_pa_offset = kernel_map.va_kernel_xip_data_pa_offset;
++#endif
+ 
+ 	memory_limit = KERN_VIRT_SIZE;
+ 
+-- 
+2.55.0
+

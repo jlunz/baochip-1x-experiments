@@ -1,0 +1,52 @@
+From d50a7888d92c418ffc4e856fd7beaf67f2bf6094 Mon Sep 17 00:00:00 2001
+From: Claude <noreply@anthropic.com>
+Date: Tue, 14 Jul 2026 19:21:56 +0200
+Subject: [PATCH 1/5] riscv: also clear the .bss section for XIP kernels
+
+The .bss clearing loop in _start_kernel is compiled out for
+CONFIG_XIP_KERNEL, but nothing else zeroes .bss on the XIP boot path:
+__copy_data() only copies the initialized data section from flash.
+As a result every XIP kernel boots with .bss full of stale RAM
+contents, causing gloriously nondeterministic failures; e.g. the
+riscv_isa bitmap starts out as garbage, and if the bit for Zkr happens
+to be set, random_init_early() executes a seed CSR access that traps
+on hardware without the extension.
+
+Run the existing clear loop on XIP too. The section symbols are link
+(virtual) addresses, so translate them with XIP_FIXUP_OFFSET, which is
+a no-op macro on non-XIP builds.
+
+This has been broken since XIP support was introduced.
+
+Co-developed-by: Claude <noreply@anthropic.com>
+---
+ arch/riscv/kernel/head.S | 4 ++--
+ 1 file changed, 2 insertions(+), 2 deletions(-)
+
+diff --git a/arch/riscv/kernel/head.S b/arch/riscv/kernel/head.S
+index 356d5397b..c1e02bd00 100644
+--- a/arch/riscv/kernel/head.S
++++ b/arch/riscv/kernel/head.S
+@@ -278,17 +278,17 @@ SYM_CODE_START(_start_kernel)
+ 	mv a1, s1
+ #endif
+ 
+-#ifndef CONFIG_XIP_KERNEL
+ 	/* Clear BSS for flat non-ELF images */
+ 	la a3, __bss_start
+ 	la a4, __bss_stop
++	XIP_FIXUP_OFFSET a3
++	XIP_FIXUP_OFFSET a4
+ 	ble a4, a3, .Lclear_bss_done
+ .Lclear_bss:
+ 	REG_S zero, (a3)
+ 	add a3, a3, RISCV_SZPTR
+ 	blt a3, a4, .Lclear_bss
+ .Lclear_bss_done:
+-#endif
+ 	la a2, boot_cpu_hartid
+ 	XIP_FIXUP_OFFSET a2
+ 	REG_S a0, (a2)
+-- 
+2.55.0
+

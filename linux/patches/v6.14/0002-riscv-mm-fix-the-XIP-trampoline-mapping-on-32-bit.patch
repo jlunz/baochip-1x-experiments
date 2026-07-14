@@ -1,0 +1,44 @@
+From 1afc8ec5714753b39892dd842133b9b8978e9ef7 Mon Sep 17 00:00:00 2001
+From: Claude <noreply@anthropic.com>
+Date: Tue, 14 Jul 2026 19:22:15 +0200
+Subject: [PATCH 2/5] riscv: mm: fix the XIP trampoline mapping on 32-bit
+
+On !64BIT (Sv32, folded PMD) the trampoline page directory is always
+populated with kernel_map.phys_addr, i.e. the RAM copy of the data
+section. For XIP kernels the text executes in place from flash at
+kernel_map.xiprom; mapping the kernel virtual base to RAM means the
+very first instruction fetched after satp is switched to the
+trampoline decodes from data bytes, and boot dies in an endless
+illegal-instruction loop.
+
+Mirror the 64-bit code, which already special-cases XIP, and map the
+trampoline to kernel_map.xiprom on XIP.
+
+32-bit XIP has never booted past this point.
+
+Co-developed-by: Claude <noreply@anthropic.com>
+---
+ arch/riscv/mm/init.c | 5 +++++
+ 1 file changed, 5 insertions(+)
+
+diff --git a/arch/riscv/mm/init.c b/arch/riscv/mm/init.c
+index 15b2eda4c..5c9e18467 100644
+--- a/arch/riscv/mm/init.c
++++ b/arch/riscv/mm/init.c
+@@ -1214,8 +1214,13 @@ asmlinkage void __init setup_vm(uintptr_t dtb_pa)
+ #endif
+ #else
+ 	/* Setup trampoline PGD */
++#ifdef CONFIG_XIP_KERNEL
++	create_pgd_mapping(trampoline_pg_dir, kernel_map.virt_addr,
++			   kernel_map.xiprom, PGDIR_SIZE, PAGE_KERNEL_EXEC);
++#else
+ 	create_pgd_mapping(trampoline_pg_dir, kernel_map.virt_addr,
+ 			   kernel_map.phys_addr, PGDIR_SIZE, PAGE_KERNEL_EXEC);
++#endif
+ #endif
+ 
+ 	/*
+-- 
+2.55.0
+
