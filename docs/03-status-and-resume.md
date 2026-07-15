@@ -4,7 +4,7 @@
 > Chronological detail and evidence live in `04-bringup-log.md` (lab notebook);
 > this file is the *entry point for a future session/agent* picking up the work.
 
-Last updated: **2026-07-15** (after phase 5a; phase 5b I2C in verification).
+Last updated: **2026-07-15** (after phase 5c: pinctrl/GPIO, I2C, SPI all green; rootfs now getty-only, 428K free with all drivers).
 
 ## Phase status
 
@@ -15,8 +15,8 @@ Last updated: **2026-07-15** (after phase 5a; phase 5b I2C in verification).
 | 2 — Renode bao1x platform | ✅ done | `emulation/renode/tests/run-smoke.sh` GREEN |
 | 3 — SBI shim + Linux in Renode | ✅ done | `tests/linux.robot` GREEN: login on ttyBAO0, native irqchip/serial stack, `sleep 1` returns |
 | 4 — hardware bring-up on Dabao | 🟡 **prepared, blocked on user** | `build/dabao/dabao-linux.uf2` (signed, verified); flashing guide `05-hardware-bringup.md`; needs the physical board |
-| 5 — driver expansion | 🟡 in progress | 5a pinctrl/GPIO ✅ (robot-tested); 5b I2C written, in verification; SPI/RRAM-MTD/SD/USB-UDC not started |
-| 6 — upstream packaging | 🟡 partial | 16-patch series exports clean; dt-bindings validate; MAINTAINERS entry + mainline-HEAD rebase outstanding |
+| 5 — driver expansion | 🟡 in progress | 5a pinctrl/GPIO ✅, 5b I2C ✅, 5c SPI ✅ (all robot-tested); RRAM-MTD/SD/USB-UDC not started |
+| 6 — upstream packaging | 🟡 partial | 19-patch series exports clean; dt-bindings validate; MAINTAINERS entry + mainline-HEAD rebase outstanding |
 
 ## What exists and how to rebuild it
 
@@ -63,24 +63,20 @@ mtd-rom at **0x60220000** (usable RRAM ends 0x603DA000). Native drivers:
   TIMER0 = DT timebase = 100 MHz. One knob, keep them equal.
 - Dabao clocking (from boot1): fclk 700 MHz, CPU/mcycle/timebase 350 MHz,
   TIMER0/TICKTIMER on fclk → shim `TIMER0_TICKS_MULT=2`, perclk ≈ 99.8 MHz.
-- Shim currently ungates uDMA clocks (uart2, i2c0) — a kernel UDMA_CTRL
+- Shim currently ungates uDMA clocks (uart2, i2c0, spim0) — a kernel UDMA_CTRL
   clk driver is future work; add new peripherals to `uart2_init()` until then.
 
 ## Immediate next steps
 
-1. **Phase 5b (in flight)**: finish uDMA I2C verification in Renode
-   (`linux.robot` I2C section: TMP103 at 0x48 via i2c-tool). Then commit as
-   kernel patches (binding + driver) like the previous drivers.
-2. **Phase 4 (user)**: flash `build/dabao/dabao-linux.uf2` per
+1. **Phase 4 (user)**: flash `build/dabao/dabao-linux.uf2` per
    `05-hardware-bringup.md` (⚠ irreversible DEVELOPER_MODE burn, approved
    2026-07-14). First-on-silicon watch list is in that file (rdtime
    emulation, timer scaling, UART divider).
-3. **Phase 5c+**: UDMA SPIM driver (same pattern as I2C; regs 0x50105000+),
-   RRAM MTD write via RRC @0x40000000 (xous `rram.rs` is the reference;
-   read-while-write hazards vs XIP!), SD via UDMA SDIO (0x5010d000), then
-   the Corigine USB UDC (0x50200000, port from xous
+2. **Phase 5d+**: RRAM MTD write via RRC @0x40000000 (xous `rram.rs` is the
+   reference; read-while-write hazards vs XIP!), SD via UDMA SDIO
+   (0x5010d000), then the Corigine USB UDC (0x50200000, port from xous
    `libs/bao1x-hal/src/usb/`) — the big one.
-4. **Phase 6**: MAINTAINERS entry, reorder series (bindings before drivers),
+3. **Phase 6**: MAINTAINERS entry, reorder series (bindings before drivers),
    rebase/forward-port onto mainline HEAD (XIP revival argument), cover
    letter. The `maintainers:` fields in the dt-bindings need the user's
    review before any submission (currently their +claude address, no
