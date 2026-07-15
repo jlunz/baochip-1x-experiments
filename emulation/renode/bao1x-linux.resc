@@ -1,0 +1,25 @@
+:name: bao1x-linux
+:description: Boot Linux on the bao1x platform (phase 3). Build first with
+:             emulation/renode/build-phase3.sh.
+
+using sysbus
+path add $ORIGIN
+mach create "bao1x"
+
+i @peripherals/Bao1xDuart.cs
+i @peripherals/Bao1xIrqArray.cs
+i @peripherals/Bao1xLiteXTimer.cs
+i @peripherals/Bao1xTickTimer.cs
+i @peripherals/Bao1xUdmaCtrl.cs
+i @peripherals/Bao1xUdmaUart.cs
+
+machine LoadPlatformDescription @bao1x.repl
+
+macro reset
+"""
+    sysbus LoadELF @../../build/phase3/sbi/bao1x-sbi.elf
+    sysbus LoadBinary @../../build/phase3/kernel/arch/riscv/boot/xipImage 0x60070000
+    sysbus LoadBinary @../../build/phase1/rootfs.cramfs 0x60220000
+"""
+
+runMacro $reset

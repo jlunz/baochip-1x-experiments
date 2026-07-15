@@ -1,0 +1,71 @@
+/*
+ * Baochip-1x SoC. Phase-3 scope: only nodes with kernel consumers.
+ * (Peripheral nodes + bindings land together with their drivers.)
+ *
+ * The CPU has no time CSR: rdtime is emulated by bao1x-sbi from mcycle,
+ * so timebase-frequency must equal the core clock and is board-specific
+ * (Renode virtual clock vs 350MHz silicon).
+ *
+ * SPDX-License-Identifier: GPL-2.0 OR MIT
+ */
+
+/ {
+	compatible = "baochip,bao1x";
+	#address-cells = <1>;
+	#size-cells = <1>;
+
+	cpus {
+		#address-cells = <1>;
+		#size-cells = <0>;
+
+		cpu0: cpu@0 {
+			device_type = "cpu";
+			compatible = "baochip,bao1x-vexriscv", "riscv";
+			reg = <0>;
+			status = "okay";
+			riscv,isa = "rv32imac_zicsr_zifencei";
+			riscv,isa-base = "rv32i";
+			riscv,isa-extensions = "i", "m", "a", "c", "zicsr",
+					       "zifencei";
+			mmu-type = "riscv,sv32";
+			i-cache-size = <16384>;
+			d-cache-size = <16384>;
+
+			cpu0_intc: interrupt-controller {
+				#interrupt-cells = <1>;
+				compatible = "riscv,cpu-intc";
+				interrupt-controller;
+			};
+		};
+	};
+
+	soc {
+		compatible = "simple-bus";
+		#address-cells = <1>;
+		#size-cells = <1>;
+		ranges;
+
+		rram: flash@60000000 {
+			/* XIP reads; writes need the RRC (phase-5 MTD driver).
+			 * mtd-rom keeps it safely read-only and mtd_point-able
+			 * for the XIP cramfs root. */
+			compatible = "mtd-rom";
+			reg = <0x60000000 0x400000>;
+			bank-width = <4>;
+
+			partitions {
+				compatible = "fixed-partitions";
+				#address-cells = <1>;
+				#size-cells = <1>;
+
+				/* boot0/boot1/shim/kernel below; usable RRAM
+				 * ends at 0x3da000 (vendor layout). */
+				partition@220000 {
+					label = "rootfs";
+					reg = <0x220000 0x1ba000>;
+					read-only;
+				};
+			};
+		};
+	};
+};

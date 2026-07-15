@@ -30,6 +30,20 @@ aoram: Memory.MappedMemory @ sysbus 0x50300000
 cpu: CPU.VexRiscv @ sysbus
     cpuType: "rv32imac_zicsr_zifencei"
     privilegedArchitecture: PrivilegedArchitecture.Priv1_10
+    timeProvider: clint
+    // Pins mcycle (retired instructions) to 100MHz of virtual time; the
+    // bao1x-sbi shim emulates rdtime from mcycle, and timer0 runs at the
+    // same 100MHz, so DT timebase-frequency = 100MHz stays consistent.
+    PerformanceInMips: 100
+
+// EMULATION ARTIFACT, not on silicon (which has no CLINT and no time CSR:
+// rdtime traps and bao1x-sbi emulates it from mcycle). Renode's CPU model
+// implements rdtime natively instead of trapping, so it needs a time
+// provider at the same 100MHz of virtual time to stay consistent. Parked
+// at an address nothing decodes on the real chip; no DT node, no IRQs.
+clint: IRQControllers.CoreLevelInterruptor @ sysbus 0xF0010000
+    frequency: 100000000
+    numberOfTargets: 1
 
 // --- Console -------------------------------------------------------------------
 duart: UART.Baochip.Bao1xDuart @ sysbus 0x40042000

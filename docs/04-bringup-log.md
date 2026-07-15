@@ -121,3 +121,33 @@ The bao1x system won't run those daemons, and the SBI shim reserves only a few K
 so the budget closes with margin. Kernel series is now 8 patches (re-exported to
 linux/patches/v6.14/). KALLSYMS costs only flash (rodata is XIP) — worth enabling
 for hardware bring-up debugging later.
+
+## 2026-07-15 (cont.) — Phase 3: Linux boots on the bao1x platform in Renode
+
+First full-stack boot, and it worked on (nearly) the first attempt: **`dabao login:`
+on uDMA UART2** with the exact bao1x memory map — shim @0x60060000, XIP kernel
+@0x60070000, XIP cramfs rootfs @0x60220000 (all inside the vendor's usable-RRAM
+limit 0x603DA000), kernel RAM = SRAM @0x61000000 (2MiB minus 16KiB shim workspace).
+
+Strategy that made attempt 1 driverless: the kernel uses only stock code —
+`HVC_RISCV_SBI` console + `earlycon=sbi` (DBCN), `RISCV_TIMER` via SBI set_timer,
+physmap/mtd-rom/cramfs root. Everything bao1x-specific lives in **bao1x-sbi**
+(firmware/bao1x-sbi, ~3KiB M-mode shim): DBCN/legacy console routed to UART2
+(DMA TX bounced through IFRAM0 tail, PIO RX), sbi_set_timer armed on TIMER0
+(machine ext-irq 30) with the M-ext trap setting mip.STIP (mideleg-delegated),
+rdtime/rdtimeh emulated from mcycle on illegal-instruction traps, non-rdtime
+illegals forwarded to stvec by hand, medeleg for the rest.
+
+Renode findings:
+- Renode's VexRiscv implements the `time` CSR natively (silicon traps it!) and
+  needs a time provider: parked a CLINT at 0xF0010000 (no DT node, nothing on
+  silicon decodes it) at 100MHz to match `PerformanceInMips: 100` (= mcycle
+  rate) and DT `timebase-frequency`. The shim's rdtime emulation is therefore
+  UNTESTED in Renode — first exercised on hardware (phase-4 watch item).
+- `riscv: base ISA extensions` came up empty: v6.14 with
+  `CONFIG_RISCV_ISA_FALLBACK=n` ignores `riscv,isa`; added `riscv,isa-base` +
+  `riscv,isa-extensions` to the DT (the modern canonical properties).
+- `mount: mounting sysfs on /sys failed` in rcS — expected (SYSFS=n); cosmetic.
+
+Memory: 1560K/2032K available, boots clean with the 4K-stack + no-sysfs +
+no-block + LOG_BUF=4K recipe from phase 1. No allocation failures.

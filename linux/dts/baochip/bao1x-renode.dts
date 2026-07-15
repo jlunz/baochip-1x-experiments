@@ -1,0 +1,29 @@
+/*
+ * Baochip-1x on the Renode emulation platform (emulation/renode/bao1x.repl).
+ * Differs from silicon only in clocking: mcycle advances at Renode's
+ * virtual 100 MIPS (cpu PerformanceInMips), so timebase-frequency is
+ * 100MHz here and 350MHz on the Dabao board.
+ *
+ * SPDX-License-Identifier: GPL-2.0 OR MIT
+ */
+/dts-v1/;
+
+/include/ "bao1x.dtsi"
+
+/ {
+	model = "Baochip bao1x (Renode)";
+
+	chosen {
+		bootargs = "earlycon=sbi console=hvc0 root=mtd:rootfs rootfstype=cramfs ro";
+	};
+
+	cpus {
+		timebase-frequency = <100000000>;
+	};
+
+	memory@61000000 {
+		device_type = "memory";
+		/* 2MiB SRAM minus the top 16KiB (bao1x-sbi workspace). */
+		reg = <0x61000000 0x1fc000>;
+	};
+};

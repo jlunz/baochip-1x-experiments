@@ -1,0 +1,101 @@
+/*
+ * bao1x-sbi: hardware definitions.
+ * See docs/01-hardware-dossier.md for sources (RTL + xous-core SVDs).
+ *
+ * SPDX-License-Identifier: Apache-2.0
+ */
+#ifndef BAO1X_H
+#define BAO1X_H
+
+#include <stdint.h>
+
+#define MMIO32(a)       (*(volatile uint32_t *)(a))
+
+/* --- Memory map ---------------------------------------------------------- */
+#define RRAM_BASE       0x60000000u
+#define SRAM_BASE       0x61000000u
+#define SRAM_SIZE       0x00200000u
+/* Top 16KiB of SRAM is the shim's workspace (data/bss/M-stack); the DT
+ * memory node ends below it. The DTB is copied just underneath, inside
+ * kernel memory (the kernel memblock-reserves it). */
+#define SHIM_RAM_SIZE   0x4000u
+#define SHIM_RAM_BASE   (SRAM_BASE + SRAM_SIZE - SHIM_RAM_SIZE)   /* 0x611FC000 */
+#define DTB_MAX_SIZE    0x4000u
+#define DTB_DEST        (SHIM_RAM_BASE - DTB_MAX_SIZE)            /* 0x611F8000 */
+
+#define KERNEL_ENTRY    0x60070000u
+
+/* --- DUART: TX-only debug UART (shim diagnostics only) ------------------- */
+#define DUART_TXD       MMIO32(0x40042000u + 0x0)
+#define DUART_CR        MMIO32(0x40042000u + 0x4)
+#define DUART_SR        MMIO32(0x40042000u + 0x8)
+
+/* --- uDMA ----------------------------------------------------------------- */
+#define UDMA_CTRL_CG    MMIO32(0x50100000u + 0x0)
+#define UDMA_CG_UART2   (1u << 2)
+
+#define UART2_BASE      0x50103000u
+#define UART2_TX_SADDR  MMIO32(UART2_BASE + 0x10)
+#define UART2_TX_SIZE   MMIO32(UART2_BASE + 0x14)
+#define UART2_TX_CFG    MMIO32(UART2_BASE + 0x18)
+#define UART2_STATUS    MMIO32(UART2_BASE + 0x20)
+#define UART2_SETUP     MMIO32(UART2_BASE + 0x24)
+#define UART2_IRQ_EN    MMIO32(UART2_BASE + 0x2c)
+#define UART2_VALID     MMIO32(UART2_BASE + 0x30)
+#define UART2_DATA      MMIO32(UART2_BASE + 0x34)
+
+#define UART_SETUP_PARITY   (1u << 0)
+#define UART_SETUP_8BIT     (3u << 1)
+#define UART_SETUP_RXPOLL   (1u << 4)
+#define UART_SETUP_TXEN     (1u << 8)
+#define UART_SETUP_RXEN     (1u << 9)
+#define UART_SETUP_DIV(d)   ((uint32_t)(d) << 16)
+
+#define UART_CFG_EN         (1u << 4)
+
+/* TX bounce buffer: tail of IFRAM0 (uDMA can only read IFRAM on silicon).
+ * The kernel's future uart driver allocates from the IFRAM0 head; the shim
+ * only transmits via DBCN, which stops mattering once a real console runs. */
+#define TX_BOUNCE       0x5001FF00u
+#define TX_BOUNCE_LEN   0x100u
+
+/* --- TIMER0 (LiteX 32-bit down-counter), ext-irq array line 30 ----------- */
+#define TIMER0_BASE     0xE001C000u
+#define TIMER0_LOAD     MMIO32(TIMER0_BASE + 0x00)
+#define TIMER0_RELOAD   MMIO32(TIMER0_BASE + 0x04)
+#define TIMER0_EN       MMIO32(TIMER0_BASE + 0x08)
+#define TIMER0_EV_PENDING MMIO32(TIMER0_BASE + 0x18)
+#define TIMER0_EV_ENABLE  MMIO32(TIMER0_BASE + 0x1c)
+#define TIMER0_IRQ_LINE 30
+
+/* --- VexRiscv external interrupt array CSRs ------------------------------ */
+#define CSR_MMASK       0xBC0   /* machine mask */
+#define CSR_MPENDING    0xFC0   /* machine pending (read-only) */
+
+/* --- Standard CSR bits ---------------------------------------------------- */
+#define MSTATUS_MPP_S   (1u << 11)
+#define MSTATUS_MPIE    (1u << 7)
+#define MIP_STIP        (1u << 5)
+#define MIE_MEIE        (1u << 11)
+
+#define csr_read(csr) ({ uint32_t v; \
+    __asm__ volatile("csrr %0, " #csr : "=r"(v)); v; })
+#define csr_write(csr, v) \
+    __asm__ volatile("csrw " #csr ", %0" :: "rK"((uint32_t)(v)))
+#define csr_set(csr, v) \
+    __asm__ volatile("csrs " #csr ", %0" :: "rK"((uint32_t)(v)))
+#define csr_clear(csr, v) \
+    __asm__ volatile("csrc " #csr ", %0" :: "rK"((uint32_t)(v)))
+
+/* console.c */
+void duart_puts(const char *s);
+void duart_puthex(uint32_t v);
+void uart2_init(void);
+void uart2_tx(const uint8_t *buf, uint32_t len);
+int uart2_rx_byte(void);
+
+/* trap.c */
+void trap_handler(uint32_t *frame);
+uint64_t read_mcycle64(void);
+
+#endif
