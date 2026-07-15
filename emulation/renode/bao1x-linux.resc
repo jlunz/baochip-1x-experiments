@@ -11,6 +11,7 @@ i @peripherals/Bao1xIrqArray.cs
 i @peripherals/Bao1xLiteXTimer.cs
 i @peripherals/Bao1xTickTimer.cs
 i @peripherals/Bao1xIox.cs
+i @peripherals/Bao1xUdmaI2c.cs
 i @peripherals/Bao1xUdmaCtrl.cs
 i @peripherals/Bao1xUdmaUart.cs
 

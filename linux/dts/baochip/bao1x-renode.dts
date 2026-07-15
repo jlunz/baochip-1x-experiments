@@ -28,6 +28,12 @@
 		timebase-frequency = <100000000>;
 	};
 
+	perclk: clock-perclk {
+		compatible = "fixed-clock";
+		#clock-cells = <0>;
+		clock-frequency = <100000000>;
+	};
+
 	memory@61000000 {
 		device_type = "memory";
 		/* 2MiB SRAM minus the top 16KiB (bao1x-sbi workspace). */
@@ -38,4 +44,9 @@
 &uart2 {
 	/* Renode Bao1xUdmaUart model clock (silicon perclk differs). */
 	clock-frequency = <100000000>;
+};
+
+&i2c0 {
+	status = "okay";
+	clocks = <&perclk>;
 };

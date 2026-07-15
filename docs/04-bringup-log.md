@@ -222,3 +222,21 @@ linux.robot: drives PC0 out (register bits asserted), reads injected PC1
 both states. DT: iox node + uart2 pinctrl-0 (PB13/14 af1, same as boot1).
 Lesson (again): every /dev/gpiochip open costs >8KiB contiguous before the
 kvzalloc patch — on 2MiB systems watch every order>0 allocation.
+
+## 2026-07-15 (cont.) — Phase 5b: uDMA I2C GREEN in Renode
+
+Kernel patches 0016/0017: dt-binding + `i2c-bao1x` — the udma_i2c command
+engine (opcodes in [31:28]: START/WRB/WR/RD_ACK/RD_NACK/STOP/RPT/CFG/EOT,
+from rtl/ips/incdir/udma_i2c_defines.sv) driven via a per-bus IFRAM slice
+split into cmd/TX/RX bounce buffers. Polled xfer: CMD_SIZE drains + STATUS
+busy clears; ACK reg (+0x38) = sticky clear-on-read NACK → -ENXIO; SETUP
+reset recovers a wedged engine. Divider = perclk/(4·f) per vendor HAL.
+perclk is now a proper fixed-clock DT node (boards define it; i2c uses
+`clocks=`); the uart driver still uses clock-frequency — migrate in phase 6.
+Dabao bus: i2c0 @0x50109000, PB11 SCL / PB12 SDA AF1 (pinctrl node, SDA+SCL
+pull-up). Shim ungates i2c0 (bit 8) alongside uart2 until a UDMA_CTRL clk
+driver exists. Renode: Bao1xUdmaI2c interprets the command stream against
+SimpleContainer I2C slaves; TMP103 at 0x48. Rootfs: i2c-tool (I2C_RDWR).
+linux.robot: `i2c-tool scan` finds 0x48, temperature register reads back.
+Driver bug found by the test: pinconf group-set was missing in pinctrl-bao1x
+(bias-pull-up on the i2c0 group failed the whole map) — folded into 0015.

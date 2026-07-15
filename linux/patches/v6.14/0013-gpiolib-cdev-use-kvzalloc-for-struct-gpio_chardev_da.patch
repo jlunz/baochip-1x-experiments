@@ -1,7 +1,7 @@
 From 98e2a14e2c0850c3aa3f5d3e396b4b7d8760c742 Mon Sep 17 00:00:00 2001
 From: Claude <noreply@anthropic.com>
 Date: Wed, 15 Jul 2026 11:32:32 +0200
-Subject: [PATCH 13/15] gpiolib: cdev: use kvzalloc for struct
+Subject: [PATCH 13/17] gpiolib: cdev: use kvzalloc for struct
  gpio_chardev_data
 
 struct gpio_chardev_data embeds a 32-entry kfifo of struct

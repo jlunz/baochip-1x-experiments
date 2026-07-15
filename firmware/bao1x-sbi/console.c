@@ -35,7 +35,10 @@ void duart_puthex(uint32_t v)
 
 void uart2_init(void)
 {
-    UDMA_CTRL_CG |= UDMA_CG_UART2;
+    /* Ungate the uDMA peripherals Linux uses. A proper kernel clock
+     * driver for UDMA_CTRL is future work; until then the shim opens
+     * the gates (uart2 = bit 2, i2c0 = bit 8). */
+    UDMA_CTRL_CG |= UDMA_CG_UART2 | UDMA_CG_I2C0;
     /* 8n1, TX+RX enabled, PIO RX (polled — the kernel hvc console polls
      * through SBI; no events, IRQARRAY5 stays quiet for Linux to own). */
     UART2_IRQ_EN = 0;

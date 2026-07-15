@@ -1,0 +1,323 @@
+From cc6a34f52f39fa0a0ab6a54fb7a143b673ad5eba Mon Sep 17 00:00:00 2001
+From: Claude <noreply@anthropic.com>
+Date: Wed, 15 Jul 2026 15:47:08 +0200
+Subject: [PATCH 17/17] i2c: add Baochip bao1x uDMA I2C driver
+
+The bao1x I2C controller (PULP udma_i2c) executes a stream of 32-bit
+commands (START, WRB, RD_ACK/RD_NACK, STOP, CFG, RPT, ...) fetched by a
+dedicated uDMA channel, with payload bytes moving through separate TX
+and RX channels. All three channels can only access the on-chip IFRAM,
+so the driver splits the IFRAM slice assigned by the device tree into
+command/TX/RX bounce buffers.
+
+Transfers are polled: bus transactions at 100kHz-1MHz are short, and
+completion is visible in the CMD channel byte counter and the STATUS
+busy bit. The sticky clear-on-read NACK flag maps to -ENXIO, and a
+wedged engine is recovered with the SETUP reset bit. The divider
+follows the vendor HAL: perclk / (4 * bus-frequency).
+
+Co-developed-by: Claude <noreply@anthropic.com>
+---
+ drivers/i2c/busses/Kconfig     |  10 ++
+ drivers/i2c/busses/Makefile    |   1 +
+ drivers/i2c/busses/i2c-bao1x.c | 255 +++++++++++++++++++++++++++++++++
+ 3 files changed, 266 insertions(+)
+ create mode 100644 drivers/i2c/busses/i2c-bao1x.c
+
+diff --git a/drivers/i2c/busses/Kconfig b/drivers/i2c/busses/Kconfig
+index fc438f445..6603155ab 100644
+--- a/drivers/i2c/busses/Kconfig
++++ b/drivers/i2c/busses/Kconfig
+@@ -412,6 +412,16 @@ config I2C_ASPEED
+ 	  This driver can also be built as a module.  If so, the module
+ 	  will be called i2c-aspeed.
+ 
++config I2C_BAO1X
++	bool "Baochip bao1x uDMA I2C"
++	depends on OF && HAS_IOMEM
++	help
++	  I2C master support for the PULP-style uDMA I2C controllers on
++	  the Baochip bao1x SoC. The controller executes a command stream
++	  and moves payload through uDMA channels that can only reach the
++	  on-chip IFRAM, so the device tree assigns each bus an IFRAM
++	  slice used as bounce buffers. Transfers are polled.
++
+ config I2C_AT91
+ 	tristate "Atmel AT91 I2C Two-Wire interface (TWI)"
+ 	depends on ARCH_AT91 || COMPILE_TEST
+diff --git a/drivers/i2c/busses/Makefile b/drivers/i2c/busses/Makefile
+index 1c2a4510a..3b90557c8 100644
+--- a/drivers/i2c/busses/Makefile
++++ b/drivers/i2c/busses/Makefile
+@@ -38,6 +38,7 @@ obj-$(CONFIG_I2C_ALTERA)	+= i2c-altera.o
+ obj-$(CONFIG_I2C_AMD_MP2)	+= i2c-amd-mp2-pci.o i2c-amd-mp2-plat.o
+ obj-$(CONFIG_I2C_AMD_ASF)	+= i2c-amd-asf-plat.o
+ obj-$(CONFIG_I2C_ASPEED)	+= i2c-aspeed.o
++obj-$(CONFIG_I2C_BAO1X)		+= i2c-bao1x.o
+ obj-$(CONFIG_I2C_AT91)		+= i2c-at91.o
+ i2c-at91-y			:= i2c-at91-core.o i2c-at91-master.o
+ i2c-at91-$(CONFIG_I2C_AT91_SLAVE_EXPERIMENTAL)	+= i2c-at91-slave.o
+diff --git a/drivers/i2c/busses/i2c-bao1x.c b/drivers/i2c/busses/i2c-bao1x.c
+new file mode 100644
+index 000000000..5a627bd4f
+--- /dev/null
++++ b/drivers/i2c/busses/i2c-bao1x.c
+@@ -0,0 +1,255 @@
++// SPDX-License-Identifier: GPL-2.0
++/*
++ * Baochip bao1x uDMA I2C master driver (PULP udma_i2c).
++ *
++ * The controller executes a stream of 32-bit commands (START, WRB,
++ * RD_ACK/RD_NACK, STOP, ...) fetched by a third uDMA channel; payload
++ * bytes move through the TX and RX channels. All three channels can
++ * only access the on-chip IFRAM, so the DT provides an IFRAM slice
++ * that this driver splits into command/TX/RX bounce buffers.
++ *
++ * Transfers are polled: the command engine raises its events through
++ * the IRQARRAY fabric, but transactions on a 100kHz-1MHz bus are short
++ * and the controller reports completion in the CMD channel's byte
++ * counter and the STATUS busy bit. A sticky NACK flag (clear-on-read)
++ * distinguishes address/data NACKs.
++ *
++ * Co-developed-by: Claude <noreply@anthropic.com>
++ */
++
++#include <linux/clk.h>
++#include <linux/i2c.h>
++#include <linux/io.h>
++#include <linux/iopoll.h>
++#include <linux/module.h>
++#include <linux/of.h>
++#include <linux/platform_device.h>
++
++#define REG_RX_SADDR	0x00
++#define REG_RX_SIZE	0x04
++#define REG_RX_CFG	0x08
++#define REG_TX_SADDR	0x10
++#define REG_TX_SIZE	0x14
++#define REG_TX_CFG	0x18
++#define REG_CMD_SADDR	0x20
++#define REG_CMD_SIZE	0x24
++#define REG_CMD_CFG	0x28
++#define REG_STATUS	0x30
++#define REG_SETUP	0x34
++#define REG_ACK		0x38
++
++#define CFG_EN		BIT(4)
++
++#define STATUS_BUSY	BIT(0)
++#define STATUS_ARB_LOST	BIT(1)
++
++#define SETUP_RESET	BIT(0)
++
++#define CMD_START	(0x0u << 28)
++#define CMD_STOP	(0x2u << 28)
++#define CMD_RD_ACK	(0x4u << 28)
++#define CMD_RD_NACK	(0x6u << 28)
++#define CMD_WRB(b)	((0x7u << 28) | (b))
++#define CMD_WR		(0x8u << 28)
++#define CMD_RPT(n)	((0xcu << 28) | (n))
++#define CMD_CFG(div)	((0xeu << 28) | (div))
++
++/* IFRAM slice layout: one page of commands, one of TX, one of RX. */
++#define CMD_BUF_OFF	0x000
++#define CMD_BUF_WORDS	256
++#define TX_BUF_OFF	0x400
++#define RX_BUF_OFF	0x800
++#define DATA_BUF_LEN	0x400
++
++#define XFER_TIMEOUT_US	100000
++
++struct bao1x_i2c {
++	struct i2c_adapter	adap;
++	void __iomem		*regs;
++	void __iomem		*ifram;
++	phys_addr_t		ifram_phys;
++	u32			ncmds;
++	u16			divider;
++};
++
++static void bao1x_i2c_push(struct bao1x_i2c *i2c, u32 cmd)
++{
++	writel_relaxed(cmd, i2c->ifram + CMD_BUF_OFF + 4 * i2c->ncmds);
++	i2c->ncmds++;
++}
++
++static int bao1x_i2c_run(struct bao1x_i2c *i2c)
++{
++	u32 val;
++	int ret;
++
++	writel_relaxed(i2c->ifram_phys + CMD_BUF_OFF, i2c->regs + REG_CMD_SADDR);
++	writel_relaxed(4 * i2c->ncmds, i2c->regs + REG_CMD_SIZE);
++	writel_relaxed(CFG_EN, i2c->regs + REG_CMD_CFG);
++	i2c->ncmds = 0;
++
++	ret = readl_relaxed_poll_timeout(i2c->regs + REG_CMD_SIZE, val,
++					 val == 0, 10, XFER_TIMEOUT_US);
++	if (!ret)
++		ret = readl_relaxed_poll_timeout(i2c->regs + REG_STATUS, val,
++						 !(val & STATUS_BUSY), 10,
++						 XFER_TIMEOUT_US);
++	if (ret) {
++		/* Wedged engine: reset it and its channels. */
++		writel_relaxed(SETUP_RESET, i2c->regs + REG_SETUP);
++		writel_relaxed(0, i2c->regs + REG_SETUP);
++		return -ETIMEDOUT;
++	}
++	if (readl_relaxed(i2c->regs + REG_STATUS) & STATUS_ARB_LOST)
++		return -EAGAIN;
++	if (readl_relaxed(i2c->regs + REG_ACK) & 1)
++		return -ENXIO;
++	return 0;
++}
++
++static int bao1x_i2c_xfer(struct i2c_adapter *adap, struct i2c_msg *msgs,
++			  int num)
++{
++	struct bao1x_i2c *i2c = i2c_get_adapdata(adap);
++	int m, ret;
++
++	for (m = 0; m < num; m++) {
++		struct i2c_msg *msg = &msgs[m];
++
++		if (msg->len > DATA_BUF_LEN)
++			return -EOPNOTSUPP;
++
++		i2c->ncmds = 0;
++		bao1x_i2c_push(i2c, CMD_CFG(i2c->divider));
++		bao1x_i2c_push(i2c, CMD_START);
++		bao1x_i2c_push(i2c, CMD_WRB(i2c_8bit_addr_from_msg(msg)));
++
++		if (msg->flags & I2C_M_RD) {
++			writel_relaxed(i2c->ifram_phys + RX_BUF_OFF,
++				       i2c->regs + REG_RX_SADDR);
++			writel_relaxed(msg->len, i2c->regs + REG_RX_SIZE);
++			writel_relaxed(CFG_EN, i2c->regs + REG_RX_CFG);
++			if (msg->len > 1) {
++				bao1x_i2c_push(i2c, CMD_RPT(msg->len - 1));
++				bao1x_i2c_push(i2c, CMD_RD_ACK);
++			}
++			bao1x_i2c_push(i2c, CMD_RD_NACK);
++		} else if (msg->len) {
++			memcpy_toio(i2c->ifram + TX_BUF_OFF, msg->buf,
++				    msg->len);
++			writel_relaxed(i2c->ifram_phys + TX_BUF_OFF,
++				       i2c->regs + REG_TX_SADDR);
++			writel_relaxed(msg->len, i2c->regs + REG_TX_SIZE);
++			writel_relaxed(CFG_EN, i2c->regs + REG_TX_CFG);
++			bao1x_i2c_push(i2c, CMD_RPT(msg->len));
++			bao1x_i2c_push(i2c, CMD_WR);
++		}
++
++		if (m == num - 1)
++			bao1x_i2c_push(i2c, CMD_STOP);
++
++		ret = bao1x_i2c_run(i2c);
++		if (ret) {
++			/* Terminate a failed transaction cleanly. */
++			i2c->ncmds = 0;
++			bao1x_i2c_push(i2c, CMD_STOP);
++			bao1x_i2c_run(i2c);
++			return ret;
++		}
++
++		if (msg->flags & I2C_M_RD)
++			memcpy_fromio(msg->buf, i2c->ifram + RX_BUF_OFF,
++				      msg->len);
++	}
++	return num;
++}
++
++static u32 bao1x_i2c_func(struct i2c_adapter *adap)
++{
++	return I2C_FUNC_I2C | I2C_FUNC_SMBUS_EMUL;
++}
++
++static const struct i2c_algorithm bao1x_i2c_algo = {
++	.xfer = bao1x_i2c_xfer,
++	.functionality = bao1x_i2c_func,
++};
++
++static int bao1x_i2c_probe(struct platform_device *pdev)
++{
++	struct bao1x_i2c *i2c;
++	struct resource *res;
++	struct clk *clk;
++	u32 bus_freq = I2C_MAX_STANDARD_MODE_FREQ;
++	unsigned long perclk;
++	int ret;
++
++	i2c = devm_kzalloc(&pdev->dev, sizeof(*i2c), GFP_KERNEL);
++	if (!i2c)
++		return -ENOMEM;
++
++	i2c->regs = devm_platform_ioremap_resource(pdev, 0);
++	if (IS_ERR(i2c->regs))
++		return PTR_ERR(i2c->regs);
++
++	res = platform_get_resource(pdev, IORESOURCE_MEM, 1);
++	if (!res || resource_size(res) < RX_BUF_OFF + DATA_BUF_LEN) {
++		dev_err(&pdev->dev, "missing or short ifram slice\n");
++		return -ENODEV;
++	}
++	i2c->ifram = devm_ioremap_resource(&pdev->dev, res);
++	if (IS_ERR(i2c->ifram))
++		return PTR_ERR(i2c->ifram);
++	i2c->ifram_phys = res->start;
++
++	clk = devm_clk_get(&pdev->dev, NULL);
++	if (IS_ERR(clk))
++		return dev_err_probe(&pdev->dev, PTR_ERR(clk),
++				     "missing perclk\n");
++	perclk = clk_get_rate(clk);
++	if (!perclk)
++		return -EINVAL;
++
++	of_property_read_u32(pdev->dev.of_node, "clock-frequency", &bus_freq);
++	/* The engine divides perclk by 4*divider (empirical, matches the
++	 * vendor HAL). */
++	i2c->divider = min_t(unsigned long, perclk / (4 * bus_freq), U16_MAX);
++
++	i2c->adap.owner = THIS_MODULE;
++	i2c->adap.algo = &bao1x_i2c_algo;
++	i2c->adap.dev.parent = &pdev->dev;
++	i2c->adap.dev.of_node = pdev->dev.of_node;
++	strscpy(i2c->adap.name, "bao1x-i2c", sizeof(i2c->adap.name));
++	i2c_set_adapdata(&i2c->adap, i2c);
++	platform_set_drvdata(pdev, i2c);
++
++	ret = i2c_add_adapter(&i2c->adap);
++	if (ret)
++		return ret;
++	return 0;
++}
++
++static void bao1x_i2c_remove(struct platform_device *pdev)
++{
++	struct bao1x_i2c *i2c = platform_get_drvdata(pdev);
++
++	i2c_del_adapter(&i2c->adap);
++}
++
++static const struct of_device_id bao1x_i2c_of_match[] = {
++	{ .compatible = "baochip,bao1x-udma-i2c" },
++	{ }
++};
++MODULE_DEVICE_TABLE(of, bao1x_i2c_of_match);
++
++static struct platform_driver bao1x_i2c_driver = {
++	.probe = bao1x_i2c_probe,
++	.remove = bao1x_i2c_remove,
++	.driver = {
++		.name = "i2c-bao1x",
++		.of_match_table = bao1x_i2c_of_match,
++	},
++};
++module_platform_driver(bao1x_i2c_driver);
++
++MODULE_DESCRIPTION("Baochip bao1x uDMA I2C bus driver");
++MODULE_LICENSE("GPL");
+-- 
+2.55.0
+

@@ -1,7 +1,7 @@
-From c59a4e53480c3e29864ea57b82279e8dc0b08f95 Mon Sep 17 00:00:00 2001
+From 3313ad16af58fc93b7d5c2091c0112f4feb1b6ae Mon Sep 17 00:00:00 2001
 From: Claude <noreply@anthropic.com>
 Date: Wed, 15 Jul 2026 11:36:07 +0200
-Subject: [PATCH 15/15] pinctrl: add Baochip bao1x IOX driver
+Subject: [PATCH 15/17] pinctrl: add Baochip bao1x IOX driver
 
 Pin multiplexing and GPIO for the bao1x IOX block: 96 pins in six
 ports, each with a 2-bit alternate-function field (0 = GPIO), pull-up,
@@ -18,8 +18,8 @@ Co-developed-by: Claude <noreply@anthropic.com>
 ---
  drivers/pinctrl/Kconfig         |  13 ++
  drivers/pinctrl/Makefile        |   1 +
- drivers/pinctrl/pinctrl-bao1x.c | 321 ++++++++++++++++++++++++++++++++
- 3 files changed, 335 insertions(+)
+ drivers/pinctrl/pinctrl-bao1x.c | 330 ++++++++++++++++++++++++++++++++
+ 3 files changed, 344 insertions(+)
  create mode 100644 drivers/pinctrl/pinctrl-bao1x.c
 
 diff --git a/drivers/pinctrl/Kconfig b/drivers/pinctrl/Kconfig
@@ -60,10 +60,10 @@ index fba1c5662..ba5f5e2a8 100644
  obj-$(CONFIG_PINCTRL_AW9523)	+= pinctrl-aw9523.o
 diff --git a/drivers/pinctrl/pinctrl-bao1x.c b/drivers/pinctrl/pinctrl-bao1x.c
 new file mode 100644
-index 000000000..7055a0a24
+index 000000000..1b6c18670
 --- /dev/null
 +++ b/drivers/pinctrl/pinctrl-bao1x.c
-@@ -0,0 +1,321 @@
+@@ -0,0 +1,330 @@
 +// SPDX-License-Identifier: GPL-2.0
 +/*
 + * Baochip bao1x IOX pinctrl + GPIO driver.
@@ -257,9 +257,18 @@ index 000000000..7055a0a24
 +	return 0;
 +}
 +
++static int bao1x_pinconf_group_set(struct pinctrl_dev *pctldev,
++				   unsigned int group, unsigned long *configs,
++				   unsigned int num_configs)
++{
++	/* Groups are single pins with matching selectors. */
++	return bao1x_pinconf_set(pctldev, group, configs, num_configs);
++}
++
 +static const struct pinconf_ops bao1x_pinconf_ops = {
-+	.is_generic	= true,
-+	.pin_config_set	= bao1x_pinconf_set,
++	.is_generic		= true,
++	.pin_config_set		= bao1x_pinconf_set,
++	.pin_config_group_set	= bao1x_pinconf_group_set,
 +};
 +
 +/* --- gpiochip ------------------------------------------------------------ */

@@ -31,6 +31,14 @@
 		timebase-frequency = <350000000>;
 	};
 
+	perclk: clock-perclk {
+		/* boot1 programs the divider chain for a 100MHz target
+		 * (actual ~99.8MHz). */
+		compatible = "fixed-clock";
+		#clock-cells = <0>;
+		clock-frequency = <100000000>;
+	};
+
 	memory@61000000 {
 		device_type = "memory";
 		/* 2MiB SRAM minus the top 16KiB (bao1x-sbi workspace). */
@@ -43,4 +51,9 @@
 	 * (actual 99.8MHz; the resulting divider for 1Mbaud is 100 either
 	 * way). */
 	clock-frequency = <100000000>;
+};
+
+&i2c0 {
+	status = "okay";
+	clocks = <&perclk>;
 };

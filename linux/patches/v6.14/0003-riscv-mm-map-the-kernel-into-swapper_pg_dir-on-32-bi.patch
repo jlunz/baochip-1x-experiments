@@ -1,7 +1,7 @@
 From c4f5d939dc8318285db7fc73cf3e4313148a9377 Mon Sep 17 00:00:00 2001
 From: Claude <noreply@anthropic.com>
 Date: Tue, 14 Jul 2026 19:22:30 +0200
-Subject: [PATCH 03/15] riscv: mm: map the kernel into swapper_pg_dir on 32-bit
+Subject: [PATCH 03/17] riscv: mm: map the kernel into swapper_pg_dir on 32-bit
  XIP
 
 setup_vm_final() only installs the kernel mapping into swapper_pg_dir

@@ -41,3 +41,10 @@ Linux Should Boot To Shell
     Execute Command          sysbus.iox OnGPIO 33 false
     Write Line To Uart       gpio-tool get 33              testerId=${uart2}
     Wait For Line On Uart    line 33 = 0                   timeout=30   testerId=${uart2}
+    # I2C: TMP103 at 0x48; temperature register 0 reads back as a signed
+    # byte in degrees C. 42 = 0x2a.
+    Execute Command          sysbus.i2c0.tmp103 Temperature 42
+    Write Line To Uart       i2c-tool scan                 testerId=${uart2}
+    Wait For Line On Uart    found 0x48                    timeout=30   testerId=${uart2}
+    Write Line To Uart       i2c-tool read 0x48 0          testerId=${uart2}
+    Wait For Line On Uart    reg 0x00: 2a                  timeout=30   testerId=${uart2}

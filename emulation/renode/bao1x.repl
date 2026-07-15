@@ -53,6 +53,12 @@ duart: UART.Baochip.Bao1xDuart @ sysbus 0x40042000
 // the monitor/robot via e.g. `iox OnGPIO 33 true` (PC1).
 iox: Miscellaneous.Baochip.Bao1xIox @ sysbus 0x5012F000
 
+// --- uDMA I2C ---------------------------------------------------------------------
+// i2c0 (PB11/PB12 on the Dabao). Test sensor at 0x48 (linux.robot).
+i2c0: I2C.Baochip.Bao1xUdmaI2c @ sysbus 0x50109000
+
+tmp103: Sensors.TMP103 @ i2c0 0x48
+
 // --- uDMA subsystem --------------------------------------------------------------
 // Global clock-gate/event/reset registers (state-holding stub).
 udmactrl: Miscellaneous.Baochip.Bao1xUdmaCtrl @ sysbus 0x50100000

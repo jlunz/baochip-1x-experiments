@@ -28,14 +28,23 @@ build glue to change that — with all kernel work kept upstream-quality.
 ./setup/fetch-sources.sh    # clones linux, buildroot, xous-core, baochip-1x into sources/
 ```
 
-Then see `docs/00-overview.md` for the plan and current status.
+Then see **`docs/03-status-and-resume.md`** — the entry point for picking up the
+work: phase status, rebuild commands, architecture summary, next steps, and
+accumulated gotchas. `docs/00-overview.md` has the plan; `docs/04-bringup-log.md`
+is the lab notebook with all evidence.
 
-## Status
+## Status (2026-07-15)
 
 - [x] Phase 0 — research, repo, environment
-- [ ] Phase 1 — rv32 XIP Linux feasibility on QEMU `virt`
-- [ ] Phase 2 — Renode platform for bao1x
-- [ ] Phase 3 — SBI shim + Linux boot in Renode
-- [ ] Phase 4 — hardware bring-up on Dabao
-- [ ] Phase 5 — drivers: pinctrl/GPIO, I2C/SPI, RRAM MTD, SD, USB gadget
-- [ ] Phase 6 — upstream-ready patch series
+- [x] Phase 1 — rv32 XIP Linux feasibility on QEMU `virt` (**shell in 2 MiB RAM**)
+- [x] Phase 2 — Renode platform for bao1x (smoke test green)
+- [x] Phase 3 — SBI shim + Linux boot in Renode (login on ttyBAO0, native
+      irqchip/serial stack, robot-tested)
+- [ ] Phase 4 — hardware bring-up on Dabao: **flash-ready signed UF2 built**
+      (`tools/build-dabao-image.sh` → `build/dabao/dabao-linux.uf2`), awaiting
+      the physical board — see `docs/05-hardware-bringup.md` (⚠ first boot
+      burns DEVELOPER_MODE)
+- [ ] Phase 5 — drivers: pinctrl/GPIO ✅, I2C ✅ (both robot-tested in Renode);
+      SPI, RRAM MTD, SD, USB gadget outstanding
+- [ ] Phase 6 — upstream-ready series: 17 patches export clean
+      (checkpatch/dt-schema pass; Signed-off-by deliberately left to the user)
