@@ -34,6 +34,37 @@ cpu: CPU.VexRiscv @ sysbus
 // --- Console -------------------------------------------------------------------
 duart: UART.Baochip.Bao1xDuart @ sysbus 0x40042000
 
+// --- uDMA subsystem --------------------------------------------------------------
+// Global clock-gate/event/reset registers (state-holding stub).
+udmactrl: Miscellaneous.Baochip.Bao1xUdmaCtrl @ sysbus 0x50100000
+
+// uDMA UARTs. Events land in IRQARRAY5 at slot 4*n+k (n = uart index,
+// k: 0=rx dma done, 1=tx dma done, 2=rx_char, 3=err) — utralib core.svd.
+// uart2 (PB13/PB14 via IOX AF1) is the Dabao console @ 1 Mbaud.
+uart0: UART.Baochip.Bao1xUdmaUart @ sysbus 0x50101000
+    RxDmaIRQ -> irqarray5@0
+    TxDmaIRQ -> irqarray5@1
+    RxCharIRQ -> irqarray5@2
+    ErrIRQ -> irqarray5@3
+
+uart1: UART.Baochip.Bao1xUdmaUart @ sysbus 0x50102000
+    RxDmaIRQ -> irqarray5@4
+    TxDmaIRQ -> irqarray5@5
+    RxCharIRQ -> irqarray5@6
+    ErrIRQ -> irqarray5@7
+
+uart2: UART.Baochip.Bao1xUdmaUart @ sysbus 0x50103000
+    RxDmaIRQ -> irqarray5@8
+    TxDmaIRQ -> irqarray5@9
+    RxCharIRQ -> irqarray5@10
+    ErrIRQ -> irqarray5@11
+
+uart3: UART.Baochip.Bao1xUdmaUart @ sysbus 0x50104000
+    RxDmaIRQ -> irqarray5@12
+    TxDmaIRQ -> irqarray5@13
+    RxCharIRQ -> irqarray5@14
+    ErrIRQ -> irqarray5@15
+
 // --- Timers ---------------------------------------------------------------------
 // frequency: placeholder until phase 4 calibrates the real core-complex clock.
 timer0: Timers.Baochip.Bao1xLiteXTimer @ sysbus 0xE001C000
