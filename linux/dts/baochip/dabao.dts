@@ -1,0 +1,46 @@
+/*
+ * Dabao evaluation board (Baochip bao1x silicon).
+ *
+ * Clock state is inherited from boot1, which runs init_clock_asic at
+ * DEFAULT_FCLK_FREQUENCY: fclk 700MHz, CPU (and mcycle, which backs the
+ * emulated rdtime) 350MHz, perclk ~99.8MHz targeting 100MHz. The console
+ * is uDMA UART2 on PB13 (RX) / PB14 (TX), IOX AF1, pins configured by
+ * boot1; 1 Mbaud.
+ *
+ * SPDX-License-Identifier: GPL-2.0 OR MIT
+ */
+/dts-v1/;
+
+/include/ "bao1x.dtsi"
+
+/ {
+	model = "Baochip Dabao";
+	compatible = "baochip,dabao", "baochip,bao1x";
+
+	aliases {
+		serial0 = &uart2;
+	};
+
+	chosen {
+		bootargs = "earlycon console=ttyBAO0 root=mtd:rootfs rootfstype=cramfs ro";
+		stdout-path = &duart;
+	};
+
+	cpus {
+		/* = CPU clock: rdtime is emulated from mcycle by bao1x-sbi. */
+		timebase-frequency = <350000000>;
+	};
+
+	memory@61000000 {
+		device_type = "memory";
+		/* 2MiB SRAM minus the top 16KiB (bao1x-sbi workspace). */
+		reg = <0x61000000 0x1fc000>;
+	};
+};
+
+&uart2 {
+	/* perclk: boot1 programs the divider chain for a 100MHz target
+	 * (actual 99.8MHz; the resulting divider for 1Mbaud is 100 either
+	 * way). */
+	clock-frequency = <100000000>;
+};

@@ -1,12 +1,13 @@
 # bao1x-sbi: M-mode SBI shim for the Baochip-1x.
-# Usage: make DTB=path/to/board.dtb [O=outdir]
+# Usage: make BOARD=renode|dabao DTB=path/to/board.dtb [O=outdir]
 CROSS   ?= riscv64-linux-gnu-
 O       ?= ../../build/bao1x-sbi
+BOARD   ?= renode
 DTB     ?= $(O)/bao1x-renode.dtb
 
 CFLAGS  := -march=rv32imac_zicsr_zifencei -mabi=ilp32 -mcmodel=medany \
            -Os -g -Wall -Wextra -ffreestanding -fno-builtin -fno-pic \
-           -fno-stack-protector
+           -fno-stack-protector -DBOARD_$(BOARD)
 LDFLAGS := -nostdlib -Wl,--build-id=none -Wl,-T,bao1x-sbi.ld
 
 OBJS := $(O)/entry.o $(O)/main.o $(O)/trap.o $(O)/console.o

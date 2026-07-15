@@ -9,6 +9,22 @@
 
 #include <stdint.h>
 
+/* --- Board clocking ------------------------------------------------------
+ * rdtime is emulated from mcycle, so the DT timebase-frequency equals the
+ * CPU clock. TIMER0 (the sbi_set_timer backend) counts fclk, which is 2x
+ * the CPU clock on silicon (boot1 leaves the Dabao at fclk=700MHz, CPU
+ * 350MHz, perclk ~99.8MHz). Renode pins everything to 100MHz.
+ */
+#if defined(BOARD_dabao)
+#define TIMER0_TICKS_MULT   2u      /* TIMER0 ticks per timebase tick */
+#define UART2_CLKDIV        100u    /* ~99.8MHz perclk / 1Mbaud */
+#elif defined(BOARD_renode)
+#define TIMER0_TICKS_MULT   1u
+#define UART2_CLKDIV        100u    /* 100MHz model clock / 1Mbaud */
+#else
+#error "build with BOARD=renode or BOARD=dabao"
+#endif
+
 #define MMIO32(a)       (*(volatile uint32_t *)(a))
 
 /* --- Memory map ---------------------------------------------------------- */

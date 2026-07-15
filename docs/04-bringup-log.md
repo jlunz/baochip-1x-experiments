@@ -178,3 +178,30 @@ is the standard RISC-V mechanism and measured fine; a TICKTIMER clocksource
 is a phase-5 optimization (saves the rdtime trap per clock read on silicon).
 Watch item for phase 4: tx_empty()/tx-done event vs. real shifter drain
 (STATUS.busy) — indistinguishable in Renode's instant DMA.
+
+## 2026-07-15 (cont.) — Phase 4 prep: flash-ready signed UF2 for Dabao
+
+Archaeology (all from xous-core, cited in the code): boot1 runs
+`init_clock_asic(700MHz)` on Dabao before the payload — the shim inherits
+fclk=700MHz, CPU/mcycle=350MHz, perclk≈99.8MHz (targets 100MHz), SRAM trims
+and console pinmux (PB13/PB14 AF1) already done: zero platform init needed.
+Payload format: 768-byte `SignatureInFlash` at 0x60060000 (first word =
+`jal x0,+768`, ed25519ph over SealedFields‖pad‖image, FunctionCode
+Baremetal=6, magic "yumyBao3"), code entry at 0x60060300 — shim relinked
+there (Renode robot re-run: still GREEN). TIMER0/TICKTIMER count fclk →
+`TIMER0_TICKS_MULT=2` on dabao (timebase = mcycle = 350MHz).
+
+Pipeline `tools/build-dabao-image.sh`: dabao.dts (timebase 350MHz) → shim
+BOARD=dabao → truncate/append assembly (slots are NOT sector aligned; a dd
+bs=4096 seek rounding bug ate the kernel — caught by the new in-script slot
+verifier) → `xous-sign-image --bao1x` (vendor signer, built with dnf cargo;
+needs --git-describe on shallow clones) → UF2 via tools/mkuf2.py, verified
+byte-identical to the signer's own UF2 output (family 0xa7d76373).
+Result: build/dabao/dabao-linux.uf2, 10736 blocks, 0x60060000..0x602ff000
+(usable-RRAM limit 0x603da000 respected, ~0.9MB headroom).
+
+Silicon-only checks resolved from RTL: VexRiscv D$ is write-through (no
+`withWriteBack` in GenCramSoC DataCacheConfig) → IFRAM DMA bounce needs no
+cache maintenance. Shim banner now mirrored to UART2 (DUART pad may be
+unrouted). Flashing steps + triage matrix: docs/05-hardware-bringup.md.
+Board work now needs the user (flash + irreversible DEVELOPER_MODE burn).

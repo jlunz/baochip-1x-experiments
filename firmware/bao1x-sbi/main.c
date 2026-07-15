@@ -62,6 +62,10 @@ void main(void)
     duart_puts("bao1x-sbi: entering kernel at ");
     duart_puthex(KERNEL_ENTRY);
     duart_puts("\n");
+    /* Same sign of life on the console UART: the DUART pad may not be
+     * routed anywhere reachable on a given board. */
+    static const char banner[] = "bao1x-sbi: jumping to kernel\r\n";
+    uart2_tx((const uint8_t *)banner, sizeof(banner) - 1);
 
     /* From here on the shim only runs via mtvec; give traps the M-stack. */
     csr_write(mscratch, (uint32_t)__mstack_top);

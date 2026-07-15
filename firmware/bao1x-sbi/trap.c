@@ -75,7 +75,7 @@ static void set_timer(uint64_t target)
         csr_set(mip, MIP_STIP);
         return;
     }
-    uint64_t delta = target - now;
+    uint64_t delta = (target - now) * TIMER0_TICKS_MULT;
     if (delta > 0xffffffffu)
         delta = 0xffffffffu;
     TIMER0_RELOAD = 0;

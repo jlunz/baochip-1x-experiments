@@ -39,8 +39,8 @@ void uart2_init(void)
     /* 8n1, TX+RX enabled, PIO RX (polled — the kernel hvc console polls
      * through SBI; no events, IRQARRAY5 stays quiet for Linux to own). */
     UART2_IRQ_EN = 0;
-    UART2_SETUP = UART_SETUP_DIV(100) | UART_SETUP_RXEN | UART_SETUP_TXEN |
-                  UART_SETUP_RXPOLL | UART_SETUP_8BIT;
+    UART2_SETUP = UART_SETUP_DIV(UART2_CLKDIV) | UART_SETUP_RXEN |
+                  UART_SETUP_TXEN | UART_SETUP_RXPOLL | UART_SETUP_8BIT;
 }
 
 void uart2_tx(const uint8_t *buf, uint32_t len)

@@ -24,7 +24,7 @@ ls -la "$OUT/kernel/arch/riscv/boot/xipImage"
 dtc -I dts -O dtb -o "$OUT/bao1x-renode.dtb" "$TOP/linux/dts/baochip/bao1x-renode.dts"
 
 # --- bao1x-sbi shim (embeds the DTB) ----------------------------------------
-make -C "$TOP/firmware/bao1x-sbi" O="$OUT/sbi" DTB="$OUT/bao1x-renode.dtb"
+make -C "$TOP/firmware/bao1x-sbi" O="$OUT/sbi" BOARD=renode DTB="$OUT/bao1x-renode.dtb"
 
 # --- Rootfs -----------------------------------------------------------------
 if [ ! -f "$TOP/build/phase1/rootfs.cramfs" ]; then
