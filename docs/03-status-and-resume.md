@@ -4,7 +4,7 @@
 > Chronological detail and evidence live in `04-bringup-log.md` (lab notebook);
 > this file is the *entry point for a future session/agent* picking up the work.
 
-Last updated: **2026-07-15** (after phase 5d: pinctrl/GPIO, I2C, SPI, RRAM-MTD all green; rootfs getty-only; writable "data" partition at 0x360000).
+Last updated: **2026-07-15** (phases 0-3 + 5 done except USB UDC; phase 6 packaged: 22 patches in review order incl. SoC/dts/defconfig/MAINTAINERS; phase 4 awaits the user).
 
 ## Phase status
 
@@ -15,8 +15,8 @@ Last updated: **2026-07-15** (after phase 5d: pinctrl/GPIO, I2C, SPI, RRAM-MTD a
 | 2 — Renode bao1x platform | ✅ done | `emulation/renode/tests/run-smoke.sh` GREEN |
 | 3 — SBI shim + Linux in Renode | ✅ done | `tests/linux.robot` GREEN: login on ttyBAO0, native irqchip/serial stack, `sleep 1` returns |
 | 4 — hardware bring-up on Dabao | 🟡 **prepared, blocked on user** | `build/dabao/dabao-linux.uf2` (signed, verified); flashing guide `05-hardware-bringup.md`; needs the physical board |
-| 5 — driver expansion | 🟡 in progress | 5a pinctrl/GPIO ✅, 5b I2C ✅, 5c SPI ✅, 5d RRAM-MTD ✅ (all robot-tested); SD/USB-UDC not started |
-| 6 — upstream packaging | 🟡 partial | 21-patch series exports clean; dt-bindings validate; MAINTAINERS entry + mainline-HEAD rebase outstanding |
+| 5 — driver expansion | 🟡 nearly done | pinctrl/GPIO ✅, I2C ✅, SPI ✅, RRAM-MTD+JFFS2 ✅ (all robot-tested); SD n/a on Dabao (no slot); USB-UDC not started (needs hardware to validate) |
+| 6 — upstream packaging | 🟡 nearly done | 22 patches in review order (SoC/dts/defconfig/MAINTAINERS included, dtbs_check clean); mainline-HEAD forward-port outstanding |
 
 ## What exists and how to rebuild it
 
@@ -72,16 +72,18 @@ mtd-rom at **0x60220000** (usable RRAM ends 0x603DA000). Native drivers:
    `05-hardware-bringup.md` (⚠ irreversible DEVELOPER_MODE burn, approved
    2026-07-14). First-on-silicon watch list is in that file (rdtime
    emulation, timer scaling, UART divider).
-2. **Phase 5e+**: SD via UDMA SDIO (0x5010d000), then the Corigine USB UDC
-   (0x50200000, port from xous `libs/bao1x-hal/src/usb/`) — the big one.
-   Also worth doing: a flash filesystem on the "data" partition (the MTD
-   provides emulated erase; JFFS2 is the obvious candidate, watch its RAM
-   overhead) and a UDMA_CTRL clk driver to retire the shim's ungating.
-3. **Phase 6**: MAINTAINERS entry, reorder series (bindings before drivers),
-   rebase/forward-port onto mainline HEAD (XIP revival argument), cover
-   letter. The `maintainers:` fields in the dt-bindings need the user's
-   review before any submission (currently their +claude address, no
-   Signed-off-by anywhere by deliberate choice — the user adds it).
+2. **Corigine USB UDC** (0x50200000, port from xous
+   `libs/bao1x-hal/src/usb/`) — the last phase-5 driver; needs real
+   hardware to validate meaningfully, so do it after/with phase 4.
+   Smaller items: UDMA_CTRL clk driver (retire the shim's ungating),
+   uart driver migration from clock-frequency to clocks (like i2c/spi),
+   IOX gpio-irq support (8 INTCR slots).
+3. **Phase 6 (remaining)**: forward-port the series onto mainline HEAD
+   (XIP_KERNEL is being removed there — the cover letter argues this port
+   as the user justifying revival) + cover letter. The `maintainers:`/
+   MAINTAINERS identity needs the user's review before any submission
+   (currently their +claude address; no Signed-off-by by deliberate
+   choice — the user adds it).
 
 ## Gotchas for a future agent (hard-won)
 

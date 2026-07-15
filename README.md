@@ -44,7 +44,10 @@ is the lab notebook with all evidence.
       (`tools/build-dabao-image.sh` → `build/dabao/dabao-linux.uf2`), awaiting
       the physical board — see `docs/05-hardware-bringup.md` (⚠ first boot
       burns DEVELOPER_MODE)
-- [ ] Phase 5 — drivers: pinctrl/GPIO ✅, I2C ✅, SPI ✅, RRAM MTD (writable
-      data partition) ✅ (robot-tested in Renode); SD, USB gadget outstanding
-- [ ] Phase 6 — upstream-ready series: 21 patches export clean
-      (checkpatch/dt-schema pass; Signed-off-by deliberately left to the user)
+- [ ] Phase 5 — drivers: pinctrl/GPIO ✅, I2C ✅, SPI ✅, RRAM MTD + JFFS2
+      /data ✅ (robot-tested in Renode); SD n/a (no slot on Dabao); USB
+      gadget outstanding (wants hardware)
+- [ ] Phase 6 — 22 patches in review order (SoC + dts + defconfig +
+      MAINTAINERS included; checkpatch/dt-schema/dtbs_check clean;
+      Signed-off-by deliberately left to the user); mainline-HEAD
+      forward-port outstanding
