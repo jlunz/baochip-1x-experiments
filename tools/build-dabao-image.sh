@@ -33,7 +33,10 @@ mkdir -p "$OUT"
 [ -x "$SIGN" ] || { echo "xous-sign-image missing; cargo build --release -p xous-tools --bin xous-sign-image (in sources/xous-core)" >&2; exit 1; }
 
 # --- Board DTB + shim -------------------------------------------------------
-dtc -I dts -O dtb -o "$OUT/dabao.dtb" "$TOP/linux/dts/baochip/dabao.dts"
+# dabao.dts lives in the kernel tree and uses cpp-style includes.
+DTSDIR="$TOP/sources/linux/arch/riscv/boot/dts/baochip"
+cpp -nostdinc -I "$DTSDIR" -undef -x assembler-with-cpp "$DTSDIR/dabao.dts" \
+    | dtc -I dts -O dtb -i "$DTSDIR" -o "$OUT/dabao.dtb"
 make -C "$TOP/firmware/bao1x-sbi" O="$OUT/sbi" BOARD=dabao DTB="$OUT/dabao.dtb"
 
 # --- Assemble the flat payload (base = 0x60060300) --------------------------

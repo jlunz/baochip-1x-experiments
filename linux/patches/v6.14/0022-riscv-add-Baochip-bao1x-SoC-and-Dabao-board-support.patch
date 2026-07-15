@@ -1,0 +1,454 @@
+From 130921f5cc1404512e97407f627f472a47bb70e4 Mon Sep 17 00:00:00 2001
+From: Claude <noreply@anthropic.com>
+Date: Wed, 15 Jul 2026 17:39:12 +0200
+Subject: [PATCH 22/22] riscv: add Baochip bao1x SoC and Dabao board support
+
+Add ARCH_BAOCHIP, the bao1x SoC devicetree (VexRiscv rv32imac with
+Sv32, the external interrupt array + IRQARRAY fabric, uDMA serial/
+I2C/SPI, IOX pinctrl and the RRAM with its partition layout), the
+Dabao board devicetree (350MHz timebase from the emulated rdtime,
+perclk fixed-clock, uDMA UART2 console) and a defconfig that carries
+the 2MiB-RAM discipline this machine needs (XIP kernel at the RRAM
+addresses, 4K stacks, no sysfs/block, 4K log buffer).
+
+The CPU compatible is registered in the riscv cpus binding;
+dtbs_check passes for the board.
+
+Co-developed-by: Claude <noreply@anthropic.com>
+---
+ .../devicetree/bindings/riscv/cpus.yaml       |   1 +
+ MAINTAINERS                                   |  17 ++
+ arch/riscv/Kconfig.socs                       |   6 +
+ arch/riscv/boot/dts/Makefile                  |   1 +
+ arch/riscv/boot/dts/baochip/Makefile          |   2 +
+ arch/riscv/boot/dts/baochip/bao1x.dtsi        | 165 ++++++++++++++++++
+ arch/riscv/boot/dts/baochip/dabao.dts         |  59 +++++++
+ arch/riscv/configs/baochip_dabao_defconfig    | 102 +++++++++++
+ 8 files changed, 353 insertions(+)
+ create mode 100644 arch/riscv/boot/dts/baochip/Makefile
+ create mode 100644 arch/riscv/boot/dts/baochip/bao1x.dtsi
+ create mode 100644 arch/riscv/boot/dts/baochip/dabao.dts
+ create mode 100644 arch/riscv/configs/baochip_dabao_defconfig
+
+diff --git a/Documentation/devicetree/bindings/riscv/cpus.yaml b/Documentation/devicetree/bindings/riscv/cpus.yaml
+index 2c72f148a..77ef5c71b 100644
+--- a/Documentation/devicetree/bindings/riscv/cpus.yaml
++++ b/Documentation/devicetree/bindings/riscv/cpus.yaml
+@@ -46,6 +46,7 @@ properties:
+           - enum:
+               - amd,mbv32
+               - andestech,ax45mp
++              - baochip,bao1x-vexriscv
+               - canaan,k210
+               - sifive,bullet0
+               - sifive,e5
+diff --git a/MAINTAINERS b/MAINTAINERS
+index 00e94bec4..7e5c34eca 100644
+--- a/MAINTAINERS
++++ b/MAINTAINERS
+@@ -3907,6 +3907,23 @@ F:	drivers/video/backlight/
+ F:	include/linux/backlight.h
+ F:	include/linux/pwm_backlight.h
+ 
++BAOCHIP BAO1X SOC SUPPORT
++M:	Julian Lunz <julianlunz+claude@proton.me>
++S:	Maintained
++F:	Documentation/devicetree/bindings/i2c/baochip,bao1x-udma-i2c.yaml
++F:	Documentation/devicetree/bindings/interrupt-controller/baochip,bao1x-*.yaml
++F:	Documentation/devicetree/bindings/mtd/baochip,bao1x-rram.yaml
++F:	Documentation/devicetree/bindings/pinctrl/baochip,bao1x-iox.yaml
++F:	Documentation/devicetree/bindings/serial/baochip,bao1x-*.yaml
++F:	Documentation/devicetree/bindings/spi/baochip,bao1x-udma-spim.yaml
++F:	arch/riscv/boot/dts/baochip/
++F:	drivers/i2c/busses/i2c-bao1x.c
++F:	drivers/irqchip/irq-bao1x-*.c
++F:	drivers/mtd/devices/bao1x-rram.c
++F:	drivers/pinctrl/pinctrl-bao1x.c
++F:	drivers/spi/spi-bao1x.c
++F:	drivers/tty/serial/bao1x_*.c
++
+ BARCO P50 GPIO DRIVER
+ M:	Santosh Kumar Yadav <santoshkumar.yadav@barco.com>
+ M:	Peter Korsgaard <peter.korsgaard@barco.com>
+diff --git a/arch/riscv/Kconfig.socs b/arch/riscv/Kconfig.socs
+index 17606940b..81ea718e4 100644
+--- a/arch/riscv/Kconfig.socs
++++ b/arch/riscv/Kconfig.socs
+@@ -1,5 +1,11 @@
+ menu "SoC selection"
+ 
++config ARCH_BAOCHIP
++	bool "Baochip SoCs"
++	help
++	  This enables support for Baochip SoC platform hardware,
++	  such as the bao1x.
++
+ config ARCH_MICROCHIP_POLARFIRE
+ 	def_bool ARCH_MICROCHIP
+ 
+diff --git a/arch/riscv/boot/dts/Makefile b/arch/riscv/boot/dts/Makefile
+index bff887d38..503009c49 100644
+--- a/arch/riscv/boot/dts/Makefile
++++ b/arch/riscv/boot/dts/Makefile
+@@ -1,5 +1,6 @@
+ # SPDX-License-Identifier: GPL-2.0
+ subdir-y += allwinner
++subdir-y += baochip
+ subdir-y += canaan
+ subdir-y += microchip
+ subdir-y += renesas
+diff --git a/arch/riscv/boot/dts/baochip/Makefile b/arch/riscv/boot/dts/baochip/Makefile
+new file mode 100644
+index 000000000..25e76525e
+--- /dev/null
++++ b/arch/riscv/boot/dts/baochip/Makefile
+@@ -0,0 +1,2 @@
++# SPDX-License-Identifier: GPL-2.0
++dtb-$(CONFIG_ARCH_BAOCHIP) += dabao.dtb
+diff --git a/arch/riscv/boot/dts/baochip/bao1x.dtsi b/arch/riscv/boot/dts/baochip/bao1x.dtsi
+new file mode 100644
+index 000000000..bfaa0cc8b
+--- /dev/null
++++ b/arch/riscv/boot/dts/baochip/bao1x.dtsi
+@@ -0,0 +1,165 @@
++/*
++ * Baochip-1x SoC. Phase-3 scope: only nodes with kernel consumers.
++ * (Peripheral nodes + bindings land together with their drivers.)
++ *
++ * The CPU has no time CSR: rdtime is emulated by bao1x-sbi from mcycle,
++ * so timebase-frequency must equal the core clock and is board-specific
++ * (Renode virtual clock vs 350MHz silicon).
++ *
++ * SPDX-License-Identifier: GPL-2.0 OR MIT
++ */
++
++/ {
++	compatible = "baochip,bao1x";
++	#address-cells = <1>;
++	#size-cells = <1>;
++
++	cpus {
++		#address-cells = <1>;
++		#size-cells = <0>;
++
++		cpu0: cpu@0 {
++			device_type = "cpu";
++			compatible = "baochip,bao1x-vexriscv", "riscv";
++			reg = <0>;
++			status = "okay";
++			riscv,isa = "rv32imac_zicsr_zifencei";
++			riscv,isa-base = "rv32i";
++			riscv,isa-extensions = "i", "m", "a", "c", "zicsr",
++					       "zifencei";
++			mmu-type = "riscv,sv32";
++			i-cache-size = <16384>;
++			d-cache-size = <16384>;
++
++			cpu0_intc: interrupt-controller {
++				#interrupt-cells = <1>;
++				compatible = "riscv,cpu-intc";
++				interrupt-controller;
++			};
++		};
++	};
++
++	/* VexRiscv 32-line external interrupt array: CSR-controlled
++	 * (supervisor mask 0x9C0 / pending 0xDC0), no MMIO registers. */
++	bao1x_intc: interrupt-controller {
++		compatible = "baochip,bao1x-intc";
++		interrupt-controller;
++		#interrupt-cells = <1>;
++		interrupts-extended = <&cpu0_intc 9>;
++	};
++
++	soc {
++		compatible = "simple-bus";
++		#address-cells = <1>;
++		#size-cells = <1>;
++		ranges;
++
++		/* Bank 5 aggregates the four uDMA UARTs (events 4n..4n+3:
++		 * rx dma, tx dma, rx char, err). Banks 0-4 and 6-19 follow
++		 * as their consumers gain drivers. */
++		irqarray5: interrupt-controller@e0013000 {
++			compatible = "baochip,bao1x-irqarray";
++			reg = <0xe0013000 0x1000>;
++			interrupt-controller;
++			#interrupt-cells = <1>;
++			interrupts-extended = <&bao1x_intc 5>;
++		};
++
++		duart: serial@40042000 {
++			/* TX-only debug UART; earlycon only. */
++			compatible = "baochip,bao1x-duart";
++			reg = <0x40042000 0x10>;
++		};
++
++		iox: pinctrl@5012f000 {
++			compatible = "baochip,bao1x-iox";
++			reg = <0x5012f000 0x300>;
++			gpio-controller;
++			#gpio-cells = <2>;
++			gpio-ranges = <&iox 0 0 96>;
++
++			uart2_pins: uart2-pins {
++				/* PB13 rx / PB14 tx; also set by boot1. */
++				function = "af1";
++				groups = "PB13", "PB14";
++			};
++
++			i2c0_pins: i2c0-pins {
++				/* PB11 SCL / PB12 SDA */
++				function = "af1";
++				groups = "PB11", "PB12";
++				bias-pull-up;
++			};
++		};
++
++		uart2: serial@50103000 {
++			compatible = "baochip,bao1x-udma-uart";
++			/* Registers + a private IFRAM0 slice: the uDMA
++			 * transmitter can only fetch from IFRAM. */
++			reg = <0x50103000 0x1000>, <0x50010000 0x1000>;
++			reg-names = "regs", "txram";
++			interrupt-parent = <&irqarray5>;
++			interrupts = <10>, <9>;
++			interrupt-names = "rx", "tx";
++			pinctrl-names = "default";
++			pinctrl-0 = <&uart2_pins>;
++			/* clock-frequency (perclk) is board-provided. */
++		};
++
++		i2c0: i2c@50109000 {
++			compatible = "baochip,bao1x-udma-i2c";
++			/* Registers + an IFRAM0 slice for the cmd/TX/RX
++			 * uDMA bounce buffers. */
++			reg = <0x50109000 0x1000>, <0x50011000 0xc00>;
++			reg-names = "regs", "ifram";
++			#address-cells = <1>;
++			#size-cells = <0>;
++			pinctrl-names = "default";
++			pinctrl-0 = <&i2c0_pins>;
++			clock-frequency = <100000>;
++			/* clocks (perclk) provided by the board. */
++			status = "disabled";
++		};
++
++		spim0: spi@50105000 {
++			compatible = "baochip,bao1x-udma-spim";
++			/* Registers + an IFRAM0 slice for the cmd/TX/RX
++			 * uDMA bounce buffers. */
++			reg = <0x50105000 0x1000>, <0x50012000 0x1000>;
++			reg-names = "regs", "ifram";
++			#address-cells = <1>;
++			#size-cells = <0>;
++			/* No SPIM is wired on the Dabao by default; boards
++			 * enable and add pinctrl when they route one. */
++			status = "disabled";
++		};
++
++		rram: rram@60000000 {
++			/* Memory-mapped XIP reads; writes via the RRC line
++			 * buffer. Only the partitions below are exposed —
++			 * boot0/boot1/shim/kernel stay unreachable, and
++			 * 0x3da000..0x400000 is vendor-reserved (secrets;
++			 * never map a writable partition there). */
++			compatible = "baochip,bao1x-rram";
++			reg = <0x60000000 0x400000>, <0x40000000 0x1000>;
++			reg-names = "array", "rrc";
++
++			partitions {
++				compatible = "fixed-partitions";
++				#address-cells = <1>;
++				#size-cells = <1>;
++
++				partition@220000 {
++					label = "rootfs";
++					reg = <0x220000 0x140000>;
++					read-only;
++				};
++
++				data_part: partition@360000 {
++					label = "data";
++					reg = <0x360000 0x7a000>;
++				};
++			};
++		};
++	};
++};
+diff --git a/arch/riscv/boot/dts/baochip/dabao.dts b/arch/riscv/boot/dts/baochip/dabao.dts
+new file mode 100644
+index 000000000..99cbe5ff1
+--- /dev/null
++++ b/arch/riscv/boot/dts/baochip/dabao.dts
+@@ -0,0 +1,59 @@
++/*
++ * Dabao evaluation board (Baochip bao1x silicon).
++ *
++ * Clock state is inherited from boot1, which runs init_clock_asic at
++ * DEFAULT_FCLK_FREQUENCY: fclk 700MHz, CPU (and mcycle, which backs the
++ * emulated rdtime) 350MHz, perclk ~99.8MHz targeting 100MHz. The console
++ * is uDMA UART2 on PB13 (RX) / PB14 (TX), IOX AF1, pins configured by
++ * boot1; 1 Mbaud.
++ *
++ * SPDX-License-Identifier: GPL-2.0 OR MIT
++ */
++/dts-v1/;
++
++#include "bao1x.dtsi"
++
++/ {
++	model = "Baochip Dabao";
++	compatible = "baochip,dabao", "baochip,bao1x";
++
++	aliases {
++		serial0 = &uart2;
++	};
++
++	chosen {
++		bootargs = "earlycon console=ttyBAO0 root=mtd:rootfs rootfstype=cramfs ro";
++		stdout-path = &duart;
++	};
++
++	cpus {
++		/* = CPU clock: rdtime is emulated from mcycle by bao1x-sbi. */
++		timebase-frequency = <350000000>;
++	};
++
++	perclk: clock-perclk {
++		/* boot1 programs the divider chain for a 100MHz target
++		 * (actual ~99.8MHz). */
++		compatible = "fixed-clock";
++		#clock-cells = <0>;
++		clock-frequency = <100000000>;
++	};
++
++	memory@61000000 {
++		device_type = "memory";
++		/* 2MiB SRAM minus the top 16KiB (bao1x-sbi workspace). */
++		reg = <0x61000000 0x1fc000>;
++	};
++};
++
++&uart2 {
++	/* perclk: boot1 programs the divider chain for a 100MHz target
++	 * (actual 99.8MHz; the resulting divider for 1Mbaud is 100 either
++	 * way). */
++	clock-frequency = <100000000>;
++};
++
++&i2c0 {
++	status = "okay";
++	clocks = <&perclk>;
++};
+diff --git a/arch/riscv/configs/baochip_dabao_defconfig b/arch/riscv/configs/baochip_dabao_defconfig
+new file mode 100644
+index 000000000..33b89bb43
+--- /dev/null
++++ b/arch/riscv/configs/baochip_dabao_defconfig
+@@ -0,0 +1,102 @@
++# CONFIG_LOCALVERSION_AUTO is not set
++# CONFIG_CROSS_MEMORY_ATTACH is not set
++CONFIG_LOG_BUF_SHIFT=12
++# CONFIG_INITRAMFS_PRESERVE_MTIME is not set
++CONFIG_CC_OPTIMIZE_FOR_SIZE=y
++CONFIG_EXPERT=y
++# CONFIG_MULTIUSER is not set
++# CONFIG_SYSFS_SYSCALL is not set
++# CONFIG_FHANDLE is not set
++# CONFIG_POSIX_TIMERS is not set
++# CONFIG_BUG is not set
++# CONFIG_FUTEX is not set
++# CONFIG_EPOLL is not set
++# CONFIG_SIGNALFD is not set
++# CONFIG_TIMERFD is not set
++# CONFIG_EVENTFD is not set
++# CONFIG_SHMEM is not set
++# CONFIG_AIO is not set
++# CONFIG_IO_URING is not set
++# CONFIG_ADVISE_SYSCALLS is not set
++# CONFIG_MEMBARRIER is not set
++# CONFIG_RSEQ is not set
++# CONFIG_CACHESTAT_SYSCALL is not set
++CONFIG_ARCH_BAOCHIP=y
++CONFIG_NONPORTABLE=y
++CONFIG_ARCH_RV32I=y
++CONFIG_CMODEL_MEDANY=y
++# CONFIG_RISCV_ISA_ZBA is not set
++# CONFIG_FPU is not set
++# CONFIG_IRQ_STACKS is not set
++CONFIG_THREAD_SIZE_ORDER=0
++# CONFIG_RISCV_ISA_VENDOR_EXT_ANDES is not set
++# CONFIG_RISCV_ISA_VENDOR_EXT_THEAD is not set
++CONFIG_PHYS_RAM_BASE=0x61000000
++CONFIG_XIP_KERNEL=y
++CONFIG_XIP_PHYS_ADDR=0x60000000
++CONFIG_XIP_KERNEL_ENTRY_OFFSET=0x70000
++# CONFIG_RISCV_ISA_FALLBACK is not set
++# CONFIG_SUSPEND is not set
++# CONFIG_SECCOMP is not set
++# CONFIG_STACKPROTECTOR is not set
++CONFIG_ARCH_MMAP_RND_BITS=17
++# CONFIG_COMPAT_32BIT_TIME is not set
++# CONFIG_RANDOMIZE_KSTACK_OFFSET is not set
++# CONFIG_GCC_PLUGINS is not set
++# CONFIG_BLOCK is not set
++# CONFIG_COREDUMP is not set
++CONFIG_SLUB_TINY=y
++# CONFIG_COMPAT_BRK is not set
++CONFIG_SPARSEMEM_MANUAL=y
++# CONFIG_COMPACTION is not set
++# CONFIG_VM_EVENT_COUNTERS is not set
++# CONFIG_SECRETMEM is not set
++CONFIG_DEVTMPFS=y
++CONFIG_DEVTMPFS_MOUNT=y
++# CONFIG_STANDALONE is not set
++# CONFIG_PREVENT_FIRMWARE_BUILD is not set
++# CONFIG_FW_LOADER is not set
++# CONFIG_ALLOW_DEV_COREDUMP is not set
++CONFIG_MTD=y
++CONFIG_MTD_BAO1X_RRAM=y
++CONFIG_MTD_SPI_NOR=y
++CONFIG_SERIAL_EARLYCON_RISCV_SBI=y
++CONFIG_SERIAL_BAO1X=y
++CONFIG_HVC_RISCV_SBI=y
++# CONFIG_HW_RANDOM is not set
++# CONFIG_DEVMEM is not set
++# CONFIG_DEVPORT is not set
++CONFIG_I2C=y
++CONFIG_I2C_CHARDEV=y
++CONFIG_I2C_BAO1X=y
++CONFIG_SPI=y
++CONFIG_SPI_BAO1X=y
++CONFIG_PINCTRL=y
++CONFIG_PINCTRL_BAO1X=y
++# CONFIG_GPIO_CDEV_V1 is not set
++# CONFIG_HWMON is not set
++# CONFIG_USB_SUPPORT is not set
++# CONFIG_VIRTIO_MENU is not set
++# CONFIG_VHOST_MENU is not set
++# CONFIG_IOMMU_SUPPORT is not set
++CONFIG_BAO1X_INTC=y
++# CONFIG_NVMEM is not set
++# CONFIG_FILE_LOCKING is not set
++# CONFIG_DNOTIFY is not set
++# CONFIG_INOTIFY_USER is not set
++# CONFIG_SYSFS is not set
++CONFIG_JFFS2_FS=y
++# CONFIG_JFFS2_FS_WRITEBUFFER is not set
++CONFIG_JFFS2_COMPRESSION_OPTIONS=y
++# CONFIG_JFFS2_ZLIB is not set
++CONFIG_CRAMFS=y
++# CONFIG_CRC_OPTIMIZATIONS is not set
++# CONFIG_SYMBOLIC_ERRNAME is not set
++# CONFIG_DEBUG_MISC is not set
++CONFIG_FRAME_WARN=2048
++# CONFIG_SECTION_MISMATCH_WARN_ONLY is not set
++# CONFIG_FRAME_POINTER is not set
++CONFIG_SCHED_STACK_END_CHECK=y
++# CONFIG_FTRACE is not set
++# CONFIG_RUNTIME_KERNEL_TESTING_MENU is not set
++# CONFIG_RUNTIME_TESTING_MENU is not set
+-- 
+2.55.0
+

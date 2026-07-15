@@ -1,7 +1,7 @@
-From f75aeb9025ed66768755b3f2746807ef6b034eb3 Mon Sep 17 00:00:00 2001
+From bf12e2fb8310564f7a74e75e8dd003d35879ae10 Mon Sep 17 00:00:00 2001
 From: Claude <noreply@anthropic.com>
 Date: Wed, 15 Jul 2026 16:12:31 +0200
-Subject: [PATCH 20/21] dt-bindings: mtd: add Baochip bao1x RRAM
+Subject: [PATCH 20/22] dt-bindings: mtd: add Baochip bao1x RRAM
 
 Memory-mapped 4MiB resistive RAM with execute-in-place reads and
 writes through the RRC controller's line buffer. Standard

@@ -1,7 +1,7 @@
-From 85c680c8ab803afc90e9659060230d621ece748f Mon Sep 17 00:00:00 2001
+From 289212d75744ec2e65540453057764087cca7a17 Mon Sep 17 00:00:00 2001
 From: Claude <noreply@anthropic.com>
 Date: Wed, 15 Jul 2026 10:52:58 +0200
-Subject: [PATCH 10/21] serial: add Baochip bao1x uDMA UART driver and DUART
+Subject: [PATCH 13/22] serial: add Baochip bao1x uDMA UART driver and DUART
  earlycon
 
 The bao1x console UART is a PULP-style uDMA UART with an asymmetric

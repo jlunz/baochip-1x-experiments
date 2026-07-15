@@ -21,7 +21,10 @@ make ARCH=riscv CROSS_COMPILE=$CROSS O="$OUT/kernel" -j"$JOBS" xipImage
 ls -la "$OUT/kernel/arch/riscv/boot/xipImage"
 
 # --- DTB --------------------------------------------------------------------
-dtc -I dts -O dtb -o "$OUT/bao1x-renode.dtb" "$TOP/linux/dts/baochip/bao1x-renode.dts"
+# bao1x.dtsi is canonical in the kernel tree (patch "riscv: add Baochip
+# bao1x SoC and Dabao board support"); the Renode board dts includes it.
+dtc -I dts -O dtb -i "$SRC/linux/arch/riscv/boot/dts/baochip" \
+    -o "$OUT/bao1x-renode.dtb" "$TOP/linux/dts/baochip/bao1x-renode.dts"
 
 # --- bao1x-sbi shim (embeds the DTB) ----------------------------------------
 make -C "$TOP/firmware/bao1x-sbi" O="$OUT/sbi" BOARD=renode DTB="$OUT/bao1x-renode.dtb"

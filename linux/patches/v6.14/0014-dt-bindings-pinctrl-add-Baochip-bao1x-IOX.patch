@@ -1,7 +1,7 @@
-From b8bf0f7eacede9354229a23a2ed98debed55fd58 Mon Sep 17 00:00:00 2001
+From b0a1108fdf48eb55c8cf92db1ab44b6c1b0bd8e3 Mon Sep 17 00:00:00 2001
 From: Claude <noreply@anthropic.com>
 Date: Wed, 15 Jul 2026 11:36:07 +0200
-Subject: [PATCH 14/21] dt-bindings: pinctrl: add Baochip bao1x IOX
+Subject: [PATCH 14/22] dt-bindings: pinctrl: add Baochip bao1x IOX
 
 Pin mux + GPIO controller: six 16-pin ports, four functions per pin
 (2-bit selector, function 0 = GPIO), pull-up/schmitt/slew pinconf.

@@ -1,7 +1,7 @@
-From ed6906692518e2466591f44717e5b26596cd3d3b Mon Sep 17 00:00:00 2001
+From cd76b0948b87485aa00e0720700b5f4d0d35430c Mon Sep 17 00:00:00 2001
 From: Claude <noreply@anthropic.com>
 Date: Wed, 15 Jul 2026 16:12:32 +0200
-Subject: [PATCH 21/21] mtd: devices: add Baochip bao1x RRAM driver
+Subject: [PATCH 21/22] mtd: devices: add Baochip bao1x RRAM driver
 
 The bao1x's 4MiB RRAM is memory-mapped for reads - the XIP kernel
 itself executes from it - while writes go through the RRC controller's

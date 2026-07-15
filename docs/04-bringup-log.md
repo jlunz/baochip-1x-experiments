@@ -292,3 +292,20 @@ board DT shrinks the data partition to 128K (mount scans every byte; full
 488K stays on hardware). SDIO: the Dabao routes no SD slot (xous dabao
 board file has no SD pins; SDDC is device-mode, UDMA SDIO is for baosec) —
 SD support is out of scope for this board, revisit if hardware appears.
+
+## 2026-07-15 (cont.) — Phase 6: series packaged for review (22 patches)
+
+New final patch "riscv: add Baochip bao1x SoC and Dabao board support":
+ARCH_BAOCHIP in Kconfig.socs, `arch/riscv/boot/dts/baochip/{bao1x.dtsi,
+dabao.dts}` (now the canonical DT — repo keeps only bao1x-renode.dts, built
+against the kernel copy via dtc -i / cpp), `baochip_dabao_defconfig`
+(savedefconfig of the proven 2MiB config), CPU compatible registered in
+riscv/cpus.yaml (dtbs_check clean), MAINTAINERS entry (maintainer identity
+to be confirmed by the user before submission). Series rebased into review
+order: 8 riscv XIP/mm fixes → gpiolib fix → binding+driver pairs (irqchip,
+serial, pinctrl, i2c, spi, mtd) → SoC support. Full robot suite re-run
+GREEN after the reorder; UF2 rebuilt. Remaining phase-6 item: forward-port
+onto mainline HEAD (where XIP_KERNEL is being removed — the cover letter
+argues this port as the XIP user); best done after hardware confirms the
+port, alongside the Corigine USB UDC (the last phase-5 driver, which needs
+real hardware to validate meaningfully).

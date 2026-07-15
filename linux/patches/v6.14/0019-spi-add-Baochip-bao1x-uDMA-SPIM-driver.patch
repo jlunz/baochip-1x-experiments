@@ -1,7 +1,7 @@
-From c04a28a22abba5d4bf263dd11165633973ba71a5 Mon Sep 17 00:00:00 2001
+From dded941b7f306e9e8fd54390f69f06502ca2c01f Mon Sep 17 00:00:00 2001
 From: Claude <noreply@anthropic.com>
 Date: Wed, 15 Jul 2026 15:59:19 +0200
-Subject: [PATCH 19/21] spi: add Baochip bao1x uDMA SPIM driver
+Subject: [PATCH 19/22] spi: add Baochip bao1x uDMA SPIM driver
 
 Like the sibling I2C controller, the bao1x SPI master (PULP udma_spim)
 executes a 32-bit command stream fetched by a dedicated uDMA channel:

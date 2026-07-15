@@ -1,7 +1,7 @@
 From 3f26f6d0f8a6ef0821c79348e86f73c21a8daec4 Mon Sep 17 00:00:00 2001
 From: Claude <noreply@anthropic.com>
 Date: Tue, 14 Jul 2026 19:22:59 +0200
-Subject: [PATCH 04/21] riscv: mm: make the linear mapping consistent on 32-bit
+Subject: [PATCH 04/22] riscv: mm: make the linear mapping consistent on 32-bit
  XIP
 
 On 32-bit XIP three related assumptions about the linear mapping are
