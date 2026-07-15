@@ -1,7 +1,7 @@
 From a4b4185ad676cf531be61d311da09ffedfded103 Mon Sep 17 00:00:00 2001
 From: Claude <noreply@anthropic.com>
 Date: Wed, 15 Jul 2026 11:14:44 +0200
-Subject: [PATCH 11/19] dt-bindings: interrupt-controller: add Baochip bao1x
+Subject: [PATCH 11/21] dt-bindings: interrupt-controller: add Baochip bao1x
  interrupt fabric
 
 Add the baochip vendor prefix and bindings for the two levels of the

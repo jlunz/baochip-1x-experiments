@@ -134,25 +134,30 @@
 			status = "disabled";
 		};
 
-		rram: flash@60000000 {
-			/* XIP reads; writes need the RRC (phase-5 MTD driver).
-			 * mtd-rom keeps it safely read-only and mtd_point-able
-			 * for the XIP cramfs root. */
-			compatible = "mtd-rom";
-			reg = <0x60000000 0x400000>;
-			bank-width = <4>;
+		rram: rram@60000000 {
+			/* Memory-mapped XIP reads; writes via the RRC line
+			 * buffer. Only the partitions below are exposed —
+			 * boot0/boot1/shim/kernel stay unreachable, and
+			 * 0x3da000..0x400000 is vendor-reserved (secrets;
+			 * never map a writable partition there). */
+			compatible = "baochip,bao1x-rram";
+			reg = <0x60000000 0x400000>, <0x40000000 0x1000>;
+			reg-names = "array", "rrc";
 
 			partitions {
 				compatible = "fixed-partitions";
 				#address-cells = <1>;
 				#size-cells = <1>;
 
-				/* boot0/boot1/shim/kernel below; usable RRAM
-				 * ends at 0x3da000 (vendor layout). */
 				partition@220000 {
 					label = "rootfs";
-					reg = <0x220000 0x1ba000>;
+					reg = <0x220000 0x140000>;
 					read-only;
+				};
+
+				partition@360000 {
+					label = "data";
+					reg = <0x360000 0x7a000>;
 				};
 			};
 		};

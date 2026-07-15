@@ -1,7 +1,7 @@
 From bdf676363a67dfd254346e3238ee67107594c040 Mon Sep 17 00:00:00 2001
 From: Claude <noreply@anthropic.com>
 Date: Wed, 15 Jul 2026 11:14:44 +0200
-Subject: [PATCH 12/19] dt-bindings: serial: add Baochip bao1x uDMA UART and
+Subject: [PATCH 12/21] dt-bindings: serial: add Baochip bao1x uDMA UART and
  DUART
 
 The uDMA UART takes two register ranges - its MMIO registers and a

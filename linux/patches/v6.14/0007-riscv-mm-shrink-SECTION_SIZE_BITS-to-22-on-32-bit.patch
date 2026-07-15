@@ -1,7 +1,7 @@
 From 84b9a4e439d0207621b28e8c842f582103f1ee4d Mon Sep 17 00:00:00 2001
 From: Claude <noreply@anthropic.com>
 Date: Wed, 15 Jul 2026 06:03:25 +0200
-Subject: [PATCH 07/19] riscv: mm: shrink SECTION_SIZE_BITS to 22 on 32-bit
+Subject: [PATCH 07/21] riscv: mm: shrink SECTION_SIZE_BITS to 22 on 32-bit
 
 XIP_KERNEL depends on SPARSEMEM, and the 32-bit systems that want XIP
 are tiny embedded targets.  With the current 128MiB sections, populating

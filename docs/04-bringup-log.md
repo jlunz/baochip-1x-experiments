@@ -256,3 +256,23 @@ inittab (getty only) → 428K free after login with ALL drivers loaded.
 (2) don't assert on early printk lines: the 4K ring overwrites them before
 the console registers — assert on /proc/mtd instead. Series at 19 patches.
 Dabao UF2 rebuilt (kernel+rootfs+shim; shim now ungates uart2+i2c0+spim0).
+
+## 2026-07-15 (cont.) — Phase 5d: RRAM MTD (writable storage) GREEN
+
+Kernel patches 0020/0021: dt-binding + `bao1x-rram` MTD driver. Reads and
+mtd_point() straight from the mapping (cramfs root now mounts through this
+driver instead of physmap/mtd-rom — dropped from the bao1x config); writes
+via the RRC 32-byte line-buffer sequence from xous rram.rs (data words to
+the mapped address → CR=2|0xFC00 → 0x5200/0x9528 magics to the line →
+CR=0xFC00), per-line with IRQs off, VexRiscv D$ flush (.word 0x500F) after.
+Erase emulated (0xFF); only DT partitions exposed → boot chain + secrets
+area (0x3DA000+) unreachable. New layout: rootfs @0x220000 (1.25MB slot),
+**data @0x360000..0x3DA000 (488K writable)** — image builder limit updated.
+Renode: stores to executable MappedMemory can't be intercepted, so the
+platform splits the RRAM at 0x360000 — XIP part stays MappedMemory, the
+writable window is Bao1xRramData (line-buffer semantics keyed off the
+Bao1xRrc CR state). linux.robot: dd write + readback on the data partition
+via the RRC path. Robot gotchas: Renode's keyword server parses any
+`name=value` argument as named (escaping doesn't help — avoid '=' in
+patterns) and Write Line To Uart's echo check breaks on wrapped lines
+(waitForEcho=false for long commands).

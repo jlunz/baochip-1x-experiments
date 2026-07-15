@@ -52,5 +52,11 @@ Linux Should Boot To Shell
     # (boot print is lost to the 4K printk ring; assert the result instead).
     Write Line To Uart       cat /proc/mtd                 testerId=${uart2}
     Wait For Line On Uart    spi0.0                        timeout=30   testerId=${uart2}
-    Write Line To Uart       dd if=/dev/mtd1ro bs=256 count=1 2>/dev/null | wc -c    testerId=${uart2}
-    Wait For Line On Uart    256                           timeout=30   testerId=${uart2}
+    Write Line To Uart       grep '"spi0.0"' /proc/mtd | cut -d: -f1 > /tmp/s && echo "SPIREAD:$(dd if=/dev/$(cat /tmp/s)ro bs=256 count=1 2>/dev/null | wc -c)"    testerId=${uart2}    waitForEcho=false
+    Wait For Line On Uart    SPIREAD:256                   timeout=30   testerId=${uart2}
+    # RRAM: write through the RRC line buffer on the "data" partition and
+    # read it back (nonvolatile storage path).
+    Write Line To Uart       grep '"data"' /proc/mtd | cut -d: -f1 > /tmp/m && echo "dev:$(cat /tmp/m)"    testerId=${uart2}    waitForEcho=false
+    Wait For Line On Uart    dev:mtd                       timeout=30   testerId=${uart2}
+    Write Line To Uart       echo -n RRAMWRITETEST | dd of=/dev/$(cat /tmp/m) bs=13 count=1 2>/dev/null && echo "READBACK:$(dd if=/dev/$(cat /tmp/m) bs=13 count=1 2>/dev/null)"    testerId=${uart2}    waitForEcho=false
+    Wait For Line On Uart    READBACK:RRAMWRITETEST        timeout=30   testerId=${uart2}

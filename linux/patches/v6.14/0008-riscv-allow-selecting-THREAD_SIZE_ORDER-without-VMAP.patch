@@ -1,7 +1,7 @@
 From a42928b89a66e7871ce38d1c8ed8d1217f994b73 Mon Sep 17 00:00:00 2001
 From: Claude <noreply@anthropic.com>
 Date: Wed, 15 Jul 2026 06:21:54 +0200
-Subject: [PATCH 08/19] riscv: allow selecting THREAD_SIZE_ORDER without
+Subject: [PATCH 08/21] riscv: allow selecting THREAD_SIZE_ORDER without
  VMAP_STACK
 
 Tiny 32-bit systems (2MiB of RAM, XIP kernel) cannot rely on order-1

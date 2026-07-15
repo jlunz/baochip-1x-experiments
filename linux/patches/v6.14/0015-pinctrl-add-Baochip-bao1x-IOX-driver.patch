@@ -1,7 +1,7 @@
 From 3313ad16af58fc93b7d5c2091c0112f4feb1b6ae Mon Sep 17 00:00:00 2001
 From: Claude <noreply@anthropic.com>
 Date: Wed, 15 Jul 2026 11:36:07 +0200
-Subject: [PATCH 15/19] pinctrl: add Baochip bao1x IOX driver
+Subject: [PATCH 15/21] pinctrl: add Baochip bao1x IOX driver
 
 Pin multiplexing and GPIO for the bao1x IOX block: 96 pins in six
 ports, each with a 2-bit alternate-function field (0 = GPIO), pull-up,

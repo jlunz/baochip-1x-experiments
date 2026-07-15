@@ -1,7 +1,7 @@
 From c5cd193caaa2f15d53ea764bb105fd12ff87eded Mon Sep 17 00:00:00 2001
 From: Claude <noreply@anthropic.com>
 Date: Wed, 15 Jul 2026 15:59:18 +0200
-Subject: [PATCH 18/19] dt-bindings: spi: add Baochip bao1x uDMA SPIM
+Subject: [PATCH 18/21] dt-bindings: spi: add Baochip bao1x uDMA SPIM
 
 Command-stream SPI master (chip select is part of the stream, four
 native selects) whose uDMA channels only reach the on-chip IFRAM, so

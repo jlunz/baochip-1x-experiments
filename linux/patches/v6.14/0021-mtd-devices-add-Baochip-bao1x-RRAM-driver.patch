@@ -1,0 +1,303 @@
+From ed6906692518e2466591f44717e5b26596cd3d3b Mon Sep 17 00:00:00 2001
+From: Claude <noreply@anthropic.com>
+Date: Wed, 15 Jul 2026 16:12:32 +0200
+Subject: [PATCH 21/21] mtd: devices: add Baochip bao1x RRAM driver
+
+The bao1x's 4MiB RRAM is memory-mapped for reads - the XIP kernel
+itself executes from it - while writes go through the RRC controller's
+32-byte line buffer: store the eight data words to the target address,
+switch the RRC to write-command mode, store the LOAD (0x5200) and
+WRITE (0x9528) magics to the line address, and switch back (sequence
+from the vendor HAL, which performs it while executing from the same
+array). Each line commit runs with local interrupts off, and the
+VexRiscv data cache is flushed afterwards so reads observe the new
+array contents.
+
+Reads come straight from the mapping and mtd_point() is implemented,
+so cramfs can XIP userspace text directly from the array. RRAM writes
+in place; erase is emulated by writing 0xFF for the benefit of flash
+filesystems. Only the DT partitions are exposed, which keeps the boot
+chain regions and the vendor secrets area unreachable.
+
+Co-developed-by: Claude <noreply@anthropic.com>
+---
+ drivers/mtd/devices/Kconfig      |  10 ++
+ drivers/mtd/devices/Makefile     |   1 +
+ drivers/mtd/devices/bao1x-rram.c | 232 +++++++++++++++++++++++++++++++
+ 3 files changed, 243 insertions(+)
+ create mode 100644 drivers/mtd/devices/bao1x-rram.c
+
+diff --git a/drivers/mtd/devices/Kconfig b/drivers/mtd/devices/Kconfig
+index ff2f9e55e..87d3ab446 100644
+--- a/drivers/mtd/devices/Kconfig
++++ b/drivers/mtd/devices/Kconfig
+@@ -3,6 +3,16 @@ menu "Self-contained MTD device drivers"
+ 	depends on MTD!=n
+ 	depends on HAS_IOMEM
+ 
++config MTD_BAO1X_RRAM
++	bool "Baochip bao1x RRAM"
++	depends on OF && HAS_IOMEM
++	help
++	  MTD access to the memory-mapped 4MiB RRAM (resistive RAM) on the
++	  Baochip bao1x SoC. Reads (and execute-in-place) go straight
++	  through the memory mapping; writes use the RRC controller's
++	  32-byte line buffer, which works even while code executes from
++	  the same array. Erase is emulated (RRAM writes in place).
++
+ config MTD_PMC551
+ 	tristate "Ramix PMC551 PCI Mezzanine RAM card support"
+ 	depends on PCI
+diff --git a/drivers/mtd/devices/Makefile b/drivers/mtd/devices/Makefile
+index d11eb2b8b..b44008090 100644
+--- a/drivers/mtd/devices/Makefile
++++ b/drivers/mtd/devices/Makefile
+@@ -6,6 +6,7 @@
+ obj-$(CONFIG_MTD_DOCG3)		+= docg3.o
+ obj-$(CONFIG_MTD_SLRAM)		+= slram.o
+ obj-$(CONFIG_MTD_PHRAM)		+= phram.o
++obj-$(CONFIG_MTD_BAO1X_RRAM)	+= bao1x-rram.o
+ obj-$(CONFIG_MTD_PMC551)	+= pmc551.o
+ obj-$(CONFIG_MTD_MS02NV)	+= ms02-nv.o
+ obj-$(CONFIG_MTD_MTDRAM)	+= mtdram.o
+diff --git a/drivers/mtd/devices/bao1x-rram.c b/drivers/mtd/devices/bao1x-rram.c
+new file mode 100644
+index 000000000..8d4f308e5
+--- /dev/null
++++ b/drivers/mtd/devices/bao1x-rram.c
+@@ -0,0 +1,232 @@
++// SPDX-License-Identifier: GPL-2.0
++/*
++ * Baochip bao1x RRAM MTD driver.
++ *
++ * The 4MiB RRAM array is memory-mapped for reads (and execute-in-place:
++ * this very kernel runs from it), while writes go through the RRC
++ * controller's 32-byte line buffer: store the eight data words to the
++ * target address (they land in the buffer, not the array), switch the
++ * RRC to write-command mode, store the LOAD (0x5200) and WRITE (0x9528)
++ * magics to the line address, and switch back. The vendor OS performs
++ * this sequence while executing from the same array, so read-while-write
++ * is handled by the hardware; we still commit each line with interrupts
++ * off to bound the amount of in-flight code fetching.
++ *
++ * Reads are served straight from the mapping, and mtd_point() is
++ * provided so cramfs can XIP userspace text directly from the array.
++ * There is no erase in RRAM; erase is emulated by writing 0xFF so that
++ * flash filesystems can be used on a partition.
++ *
++ * Co-developed-by: Claude <noreply@anthropic.com>
++ */
++
++#include <linux/io.h>
++#include <linux/module.h>
++#include <linux/mtd/mtd.h>
++#include <linux/mtd/partitions.h>
++#include <linux/of.h>
++#include <linux/platform_device.h>
++
++#define RRC_CR		0x00
++#define RRC_SR		0x08
++
++#define RRC_CR_WRITE_CMD	0x2
++/* Always-set field observed in the vendor HAL (SECURITY_MODE). */
++#define RRC_CR_SECURITY		0xfc00
++
++#define RRAM_LINE	32
++
++#define MAGIC_LOAD	0x5200
++#define MAGIC_WRITE	0x9528
++
++struct bao1x_rram {
++	struct mtd_info	mtd;
++	void __iomem	*array;
++	void __iomem	*rrc;
++	phys_addr_t	phys;
++	struct mutex	lock;
++};
++
++/* VexRiscv full data cache flush; reads must not hit stale lines after
++ * the array is modified underneath the cache. */
++static void bao1x_rram_cache_flush(void)
++{
++	asm volatile ("fence\n\tfence.i\n\t.word 0x500F\n\tnop\n\tnop\n\tnop\n\tnop"
++		      ::: "memory");
++}
++
++/* Write one naturally aligned 32-byte line. Caller holds the lock. */
++static void bao1x_rram_write_line(struct bao1x_rram *rram, u32 offset,
++				  const u32 *line)
++{
++	void __iomem *dst = rram->array + offset;
++	unsigned long flags;
++	int i;
++
++	local_irq_save(flags);
++
++	for (i = 0; i < RRAM_LINE / 4; i++)
++		writel(line[i], dst + 4 * i);
++
++	writel(RRC_CR_WRITE_CMD | RRC_CR_SECURITY, rram->rrc + RRC_CR);
++	writel(MAGIC_LOAD, dst);
++	writel(MAGIC_WRITE, dst);
++	writel(RRC_CR_SECURITY, rram->rrc + RRC_CR);
++
++	local_irq_restore(flags);
++}
++
++static int bao1x_rram_write_range(struct bao1x_rram *rram, loff_t to,
++				  size_t len, const u_char *buf,
++				  int fill_byte)
++{
++	u32 line[RRAM_LINE / 4];
++
++	mutex_lock(&rram->lock);
++	while (len) {
++		u32 base = to & ~(RRAM_LINE - 1);
++		u32 head = to - base;
++		u32 chunk = min_t(size_t, RRAM_LINE - head, len);
++
++		/* Partial line: read-modify-write around the edges. */
++		if (head || chunk < RRAM_LINE)
++			memcpy_fromio(line, rram->array + base, RRAM_LINE);
++		if (buf) {
++			memcpy((u8 *)line + head, buf, chunk);
++			buf += chunk;
++		} else {
++			memset((u8 *)line + head, fill_byte, chunk);
++		}
++		bao1x_rram_write_line(rram, base, line);
++
++		to += chunk;
++		len -= chunk;
++	}
++	bao1x_rram_cache_flush();
++	mutex_unlock(&rram->lock);
++	return 0;
++}
++
++static int bao1x_rram_read(struct mtd_info *mtd, loff_t from, size_t len,
++			   size_t *retlen, u_char *buf)
++{
++	struct bao1x_rram *rram = mtd->priv;
++
++	memcpy_fromio(buf, rram->array + from, len);
++	*retlen = len;
++	return 0;
++}
++
++static int bao1x_rram_write(struct mtd_info *mtd, loff_t to, size_t len,
++			    size_t *retlen, const u_char *buf)
++{
++	struct bao1x_rram *rram = mtd->priv;
++	int ret;
++
++	ret = bao1x_rram_write_range(rram, to, len, buf, 0);
++	*retlen = ret ? 0 : len;
++	return ret;
++}
++
++static int bao1x_rram_erase(struct mtd_info *mtd, struct erase_info *instr)
++{
++	struct bao1x_rram *rram = mtd->priv;
++
++	return bao1x_rram_write_range(rram, instr->addr, instr->len, NULL,
++				      0xff);
++}
++
++static int bao1x_rram_point(struct mtd_info *mtd, loff_t from, size_t len,
++			    size_t *retlen, void **virt, resource_size_t *phys)
++{
++	struct bao1x_rram *rram = mtd->priv;
++
++	*virt = (void __force *)rram->array + from;
++	if (phys)
++		*phys = rram->phys + from;
++	*retlen = len;
++	return 0;
++}
++
++static int bao1x_rram_unpoint(struct mtd_info *mtd, loff_t from, size_t len)
++{
++	return 0;
++}
++
++static int bao1x_rram_probe(struct platform_device *pdev)
++{
++	struct bao1x_rram *rram;
++	struct resource *res;
++	int ret;
++
++	rram = devm_kzalloc(&pdev->dev, sizeof(*rram), GFP_KERNEL);
++	if (!rram)
++		return -ENOMEM;
++	mutex_init(&rram->lock);
++
++	res = platform_get_resource(pdev, IORESOURCE_MEM, 0);
++	if (!res)
++		return -ENODEV;
++	/* The kernel executes in place from this window: map it without
++	 * claiming the region exclusively. */
++	rram->array = devm_ioremap(&pdev->dev, res->start,
++				   resource_size(res));
++	if (!rram->array)
++		return -ENOMEM;
++	rram->phys = res->start;
++
++	res = platform_get_resource(pdev, IORESOURCE_MEM, 1);
++	rram->rrc = devm_ioremap_resource(&pdev->dev, res);
++	if (IS_ERR(rram->rrc))
++		return PTR_ERR(rram->rrc);
++
++	rram->mtd.priv = rram;
++	rram->mtd.dev.parent = &pdev->dev;
++	rram->mtd.name = "bao1x-rram";
++	rram->mtd.type = MTD_RAM;
++	rram->mtd.flags = MTD_CAP_RAM;
++	rram->mtd.size = resource_size(platform_get_resource(pdev,
++							IORESOURCE_MEM, 0));
++	rram->mtd.writesize = 1;
++	rram->mtd.writebufsize = RRAM_LINE;
++	rram->mtd.erasesize = SZ_4K;
++	rram->mtd._read = bao1x_rram_read;
++	rram->mtd._write = bao1x_rram_write;
++	rram->mtd._erase = bao1x_rram_erase;
++	rram->mtd._point = bao1x_rram_point;
++	rram->mtd._unpoint = bao1x_rram_unpoint;
++	mtd_set_of_node(&rram->mtd, pdev->dev.of_node);
++
++	ret = mtd_device_register(&rram->mtd, NULL, 0);
++	if (ret)
++		return ret;
++
++	platform_set_drvdata(pdev, rram);
++	return 0;
++}
++
++static void bao1x_rram_remove(struct platform_device *pdev)
++{
++	struct bao1x_rram *rram = platform_get_drvdata(pdev);
++
++	mtd_device_unregister(&rram->mtd);
++}
++
++static const struct of_device_id bao1x_rram_of_match[] = {
++	{ .compatible = "baochip,bao1x-rram" },
++	{ }
++};
++MODULE_DEVICE_TABLE(of, bao1x_rram_of_match);
++
++static struct platform_driver bao1x_rram_driver = {
++	.probe = bao1x_rram_probe,
++	.remove = bao1x_rram_remove,
++	.driver = {
++		.name = "bao1x-rram",
++		.of_match_table = bao1x_rram_of_match,
++	},
++};
++module_platform_driver(bao1x_rram_driver);
++
++MODULE_DESCRIPTION("Baochip bao1x RRAM MTD driver");
++MODULE_LICENSE("GPL");
+-- 
+2.55.0
+

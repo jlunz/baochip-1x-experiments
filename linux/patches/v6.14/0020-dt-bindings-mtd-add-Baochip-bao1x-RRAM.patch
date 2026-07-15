@@ -1,0 +1,93 @@
+From f75aeb9025ed66768755b3f2746807ef6b034eb3 Mon Sep 17 00:00:00 2001
+From: Claude <noreply@anthropic.com>
+Date: Wed, 15 Jul 2026 16:12:31 +0200
+Subject: [PATCH 20/21] dt-bindings: mtd: add Baochip bao1x RRAM
+
+Memory-mapped 4MiB resistive RAM with execute-in-place reads and
+writes through the RRC controller's line buffer. Standard
+fixed-partitions; the binding documents the vendor-reserved regions
+that writable partitions must avoid.
+
+Co-developed-by: Claude <noreply@anthropic.com>
+---
+ .../bindings/mtd/baochip,bao1x-rram.yaml      | 68 +++++++++++++++++++
+ 1 file changed, 68 insertions(+)
+ create mode 100644 Documentation/devicetree/bindings/mtd/baochip,bao1x-rram.yaml
+
+diff --git a/Documentation/devicetree/bindings/mtd/baochip,bao1x-rram.yaml b/Documentation/devicetree/bindings/mtd/baochip,bao1x-rram.yaml
+new file mode 100644
+index 000000000..371a2ce2f
+--- /dev/null
++++ b/Documentation/devicetree/bindings/mtd/baochip,bao1x-rram.yaml
+@@ -0,0 +1,68 @@
++# SPDX-License-Identifier: (GPL-2.0-only OR BSD-2-Clause)
++%YAML 1.2
++---
++$id: http://devicetree.org/schemas/mtd/baochip,bao1x-rram.yaml#
++$schema: http://devicetree.org/meta-schemas/core.yaml#
++
++title: Baochip bao1x RRAM
++
++description:
++  The 4MiB resistive RAM on the Baochip bao1x SoC. The array is
++  memory-mapped for reads and execute-in-place; writes go through the
++  RRC controller's 32-byte line buffer and work in place (no erase).
++  Partitions follow the standard fixed-partitions binding; the vendor
++  boot chain occupies the start of the array and the last 0x26000 bytes
++  are reserved for device secrets, so writable partitions must stay
++  inside the region between them.
++
++maintainers:
++  - Julian Lunz <julianlunz+claude@proton.me>
++
++properties:
++  compatible:
++    const: baochip,bao1x-rram
++
++  reg:
++    items:
++      - description: the memory-mapped array
++      - description: RRC controller registers
++
++  reg-names:
++    items:
++      - const: array
++      - const: rrc
++
++  partitions:
++    $ref: /schemas/mtd/partitions/partitions.yaml#
++
++required:
++  - compatible
++  - reg
++  - reg-names
++
++additionalProperties: false
++
++examples:
++  - |
++    rram@60000000 {
++        compatible = "baochip,bao1x-rram";
++        reg = <0x60000000 0x400000>, <0x40000000 0x1000>;
++        reg-names = "array", "rrc";
++
++        partitions {
++            compatible = "fixed-partitions";
++            #address-cells = <1>;
++            #size-cells = <1>;
++
++            partition@220000 {
++                label = "rootfs";
++                reg = <0x220000 0x140000>;
++                read-only;
++            };
++
++            partition@360000 {
++                label = "data";
++                reg = <0x360000 0x7a000>;
++            };
++        };
++    };
+-- 
+2.55.0
+

@@ -10,8 +10,19 @@
 // MTIP/MSIP are tied off in silicon: nothing connects to @100/@101.
 
 // --- Memories ---------------------------------------------------------------
+// XIP portion of the RRAM (boot/shim/kernel/rootfs): must stay
+// MappedMemory so the CPU can execute from it. The writable tail is
+// modeled by rramdata below (Renode cannot hook stores to MappedMemory).
 rram: Memory.MappedMemory @ sysbus 0x60000000
-    size: 0x400000
+    size: 0x360000
+
+rrc: Miscellaneous.Baochip.Bao1xRrc @ sysbus 0x40000000
+
+// Writable RRAM window 0x60360000..0x60400000 ("data" partition +
+// vendor-reserved tail) with RRC line-buffer write semantics.
+rramdata: Miscellaneous.Baochip.Bao1xRramData @ sysbus 0x60360000
+    rrc: rrc
+    size: 0xA0000
 
 sram: Memory.MappedMemory @ sysbus 0x61000000
     size: 0x200000

@@ -23,7 +23,8 @@ ROOTFS="$TOP/build/phase1/rootfs.cramfs"
 SHIM_OFF=0            # source.bin starts at flash 0x60060300
 KERNEL_OFF=$((0x60070000 - 0x60060300))
 ROOTFS_OFF=$((0x60220000 - 0x60060300))
-LIMIT=$((0x603DA000 - 0x60060300))
+# rootfs slot ends where the writable "data" partition begins (see the DT)
+LIMIT=$((0x60360000 - 0x60060300))
 
 mkdir -p "$OUT"
 
