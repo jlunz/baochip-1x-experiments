@@ -50,6 +50,7 @@
 #define UDMA_CTRL_CG    MMIO32(0x50100000u + 0x0)
 #define UDMA_CG_UART2   (1u << 2)
 #define UDMA_CG_I2C0    (1u << 8)
+#define UDMA_CG_SPIM0   (1u << 4)
 
 #define UART2_BASE      0x50103000u
 #define UART2_TX_SADDR  MMIO32(UART2_BASE + 0x10)

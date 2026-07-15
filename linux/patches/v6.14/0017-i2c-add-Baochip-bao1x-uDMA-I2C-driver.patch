@@ -1,7 +1,7 @@
 From cc6a34f52f39fa0a0ab6a54fb7a143b673ad5eba Mon Sep 17 00:00:00 2001
 From: Claude <noreply@anthropic.com>
 Date: Wed, 15 Jul 2026 15:47:08 +0200
-Subject: [PATCH 17/17] i2c: add Baochip bao1x uDMA I2C driver
+Subject: [PATCH 17/19] i2c: add Baochip bao1x uDMA I2C driver
 
 The bao1x I2C controller (PULP udma_i2c) executes a stream of 32-bit
 commands (START, WRB, RD_ACK/RD_NACK, STOP, CFG, RPT, ...) fetched by a

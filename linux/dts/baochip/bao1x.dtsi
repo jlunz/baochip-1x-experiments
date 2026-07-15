@@ -121,6 +121,19 @@
 			status = "disabled";
 		};
 
+		spim0: spi@50105000 {
+			compatible = "baochip,bao1x-udma-spim";
+			/* Registers + an IFRAM0 slice for the cmd/TX/RX
+			 * uDMA bounce buffers. */
+			reg = <0x50105000 0x1000>, <0x50012000 0x1000>;
+			reg-names = "regs", "ifram";
+			#address-cells = <1>;
+			#size-cells = <0>;
+			/* No SPIM is wired on the Dabao by default; boards
+			 * enable and add pinctrl when they route one. */
+			status = "disabled";
+		};
+
 		rram: flash@60000000 {
 			/* XIP reads; writes need the RRC (phase-5 MTD driver).
 			 * mtd-rom keeps it safely read-only and mtd_point-able

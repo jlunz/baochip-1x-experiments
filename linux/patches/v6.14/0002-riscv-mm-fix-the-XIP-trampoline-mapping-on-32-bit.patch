@@ -1,7 +1,7 @@
 From 1afc8ec5714753b39892dd842133b9b8978e9ef7 Mon Sep 17 00:00:00 2001
 From: Claude <noreply@anthropic.com>
 Date: Tue, 14 Jul 2026 19:22:15 +0200
-Subject: [PATCH 02/17] riscv: mm: fix the XIP trampoline mapping on 32-bit
+Subject: [PATCH 02/19] riscv: mm: fix the XIP trampoline mapping on 32-bit
 
 On !64BIT (Sv32, folded PMD) the trampoline page directory is always
 populated with kernel_map.phys_addr, i.e. the RAM copy of the data

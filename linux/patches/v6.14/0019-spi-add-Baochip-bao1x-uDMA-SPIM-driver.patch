@@ -1,0 +1,317 @@
+From c04a28a22abba5d4bf263dd11165633973ba71a5 Mon Sep 17 00:00:00 2001
+From: Claude <noreply@anthropic.com>
+Date: Wed, 15 Jul 2026 15:59:19 +0200
+Subject: [PATCH 19/19] spi: add Baochip bao1x uDMA SPIM driver
+
+Like the sibling I2C controller, the bao1x SPI master (PULP udma_spim)
+executes a 32-bit command stream fetched by a dedicated uDMA channel:
+CFG sets polarity/phase/divider, SOT/EOT assert and release one of four
+native chip selects, and TX_DATA/RX_DATA/FULL_DUPL move payload through
+the TX/RX channels, which can only access the on-chip IFRAM. The driver
+compiles each spi_message into one command list in the IFRAM slice
+assigned by the device tree (chip select must live in the stream, hence
+transfer_one_message), bounces payload through the same slice, and
+polls the CMD/RX byte counters for completion.
+
+Tested against a JEDEC SPI-NOR flash: probes and reads through the
+regular spi-mem fallback path.
+
+Co-developed-by: Claude <noreply@anthropic.com>
+---
+ drivers/spi/Kconfig     |  10 ++
+ drivers/spi/Makefile    |   1 +
+ drivers/spi/spi-bao1x.c | 249 ++++++++++++++++++++++++++++++++++++++++
+ 3 files changed, 260 insertions(+)
+ create mode 100644 drivers/spi/spi-bao1x.c
+
+diff --git a/drivers/spi/Kconfig b/drivers/spi/Kconfig
+index ea8a31032..d4e35f2e0 100644
+--- a/drivers/spi/Kconfig
++++ b/drivers/spi/Kconfig
+@@ -165,6 +165,16 @@ config SPI_ATMEL_QUADSPI
+ 	  This driver does not support generic SPI. The implementation only
+ 	  supports spi-mem interface.
+ 
++config SPI_BAO1X
++	bool "Baochip bao1x uDMA SPI"
++	depends on OF && HAS_IOMEM
++	help
++	  SPI master support for the PULP-style uDMA SPIM controllers on
++	  the Baochip bao1x SoC. The controller executes a command stream
++	  (chip select is part of the stream) and moves payload through
++	  uDMA channels that can only reach the on-chip IFRAM, so each bus
++	  is assigned an IFRAM slice for bounce buffers. Polled.
++
+ config SPI_AU1550
+ 	tristate "Au1550/Au1200/Au1300 SPI Controller"
+ 	depends on MIPS_ALCHEMY
+diff --git a/drivers/spi/Makefile b/drivers/spi/Makefile
+index 9db7554c1..ed177fcbe 100644
+--- a/drivers/spi/Makefile
++++ b/drivers/spi/Makefile
+@@ -27,6 +27,7 @@ obj-$(CONFIG_SPI_ATMEL)			+= spi-atmel.o
+ obj-$(CONFIG_SPI_ATMEL_QUADSPI)		+= atmel-quadspi.o
+ obj-$(CONFIG_SPI_AT91_USART)		+= spi-at91-usart.o
+ obj-$(CONFIG_SPI_ATH79)			+= spi-ath79.o
++obj-$(CONFIG_SPI_BAO1X)			+= spi-bao1x.o
+ obj-$(CONFIG_SPI_AU1550)		+= spi-au1550.o
+ obj-$(CONFIG_SPI_AXI_SPI_ENGINE)	+= spi-axi-spi-engine.o
+ obj-$(CONFIG_SPI_BCM2835)		+= spi-bcm2835.o
+diff --git a/drivers/spi/spi-bao1x.c b/drivers/spi/spi-bao1x.c
+new file mode 100644
+index 000000000..d1182b192
+--- /dev/null
++++ b/drivers/spi/spi-bao1x.c
+@@ -0,0 +1,249 @@
++// SPDX-License-Identifier: GPL-2.0
++/*
++ * Baochip bao1x uDMA SPI master driver (PULP udma_spim).
++ *
++ * Like the sibling I2C controller, the engine executes a 32-bit command
++ * stream (CFG, SOT, TX_DATA, RX_DATA, FULL_DUPL, EOT, ...) fetched by a
++ * dedicated uDMA channel while payload moves through TX/RX channels;
++ * all channels reach only the on-chip IFRAM, so the DT assigns an IFRAM
++ * slice that is split into command/TX/RX bounce buffers. Chip select is
++ * part of the command stream (SOT/EOT), so the whole spi_message is
++ * compiled into one command list. Completion is polled.
++ *
++ * Co-developed-by: Claude <noreply@anthropic.com>
++ */
++
++#include <linux/clk.h>
++#include <linux/io.h>
++#include <linux/iopoll.h>
++#include <linux/module.h>
++#include <linux/of.h>
++#include <linux/platform_device.h>
++#include <linux/spi/spi.h>
++
++#define REG_RX_SADDR	0x00
++#define REG_RX_SIZE	0x04
++#define REG_RX_CFG	0x08
++#define REG_TX_SADDR	0x10
++#define REG_TX_SIZE	0x14
++#define REG_TX_CFG	0x18
++#define REG_CMD_SADDR	0x20
++#define REG_CMD_SIZE	0x24
++#define REG_CMD_CFG	0x28
++#define REG_STATUS	0x30
++
++#define CFG_EN		BIT(4)
++
++#define SPIM_CFG(pol, pha, div)	((0x0u << 28) | (pol) << 9 | (pha) << 8 | (div))
++#define SPIM_SOT(cs)		((0x1u << 28) | (cs))
++#define SPIM_TX_DATA(len)	((0x6u << 28) | (7u << 16) | ((len) - 1))
++#define SPIM_RX_DATA(len)	((0x7u << 28) | (7u << 16) | ((len) - 1))
++#define SPIM_FULL_DUPL(len)	((0xcu << 28) | (7u << 16) | ((len) - 1))
++#define SPIM_EOT		(0x9u << 28)
++
++/* IFRAM slice layout: one page of commands, then TX and RX buffers. */
++#define CMD_BUF_OFF	0x000
++#define CMD_BUF_WORDS	64
++#define TX_BUF_OFF	0x100
++#define RX_BUF_OFF	0x880
++#define DATA_BUF_LEN	0x780
++
++#define XFER_TIMEOUT_US	500000
++
++struct bao1x_spi {
++	void __iomem	*regs;
++	void __iomem	*ifram;
++	phys_addr_t	ifram_phys;
++	unsigned long	perclk;
++	u32		ncmds;
++};
++
++static void bao1x_spi_push(struct bao1x_spi *spi, u32 cmd)
++{
++	writel_relaxed(cmd, spi->ifram + CMD_BUF_OFF + 4 * spi->ncmds);
++	spi->ncmds++;
++}
++
++static int bao1x_spi_run(struct bao1x_spi *spi)
++{
++	u32 val;
++	int ret;
++
++	writel_relaxed(spi->ifram_phys + CMD_BUF_OFF, spi->regs + REG_CMD_SADDR);
++	writel_relaxed(4 * spi->ncmds, spi->regs + REG_CMD_SIZE);
++	writel_relaxed(CFG_EN, spi->regs + REG_CMD_CFG);
++	spi->ncmds = 0;
++
++	ret = readl_relaxed_poll_timeout(spi->regs + REG_CMD_SIZE, val,
++					 val == 0, 10, XFER_TIMEOUT_US);
++	if (!ret)
++		ret = readl_relaxed_poll_timeout(spi->regs + REG_RX_SIZE, val,
++						 val == 0, 10, XFER_TIMEOUT_US);
++	return ret;
++}
++
++static int bao1x_spi_xfer_chunk(struct bao1x_spi *spi, struct spi_device *dev,
++				const u8 *tx, u8 *rx, unsigned int len,
++				bool first, bool last)
++{
++	u32 div = DIV_ROUND_UP(spi->perclk,
++			       dev->max_speed_hz ?: 1000000) & 0xff;
++	int ret;
++
++	spi->ncmds = 0;
++	if (first) {
++		bao1x_spi_push(spi, SPIM_CFG(!!(dev->mode & SPI_CPOL),
++					     !!(dev->mode & SPI_CPHA), div));
++		bao1x_spi_push(spi, SPIM_SOT(spi_get_chipselect(dev, 0)));
++	}
++
++	if (tx) {
++		memcpy_toio(spi->ifram + TX_BUF_OFF, tx, len);
++		writel_relaxed(spi->ifram_phys + TX_BUF_OFF,
++			       spi->regs + REG_TX_SADDR);
++		writel_relaxed(len, spi->regs + REG_TX_SIZE);
++		writel_relaxed(CFG_EN, spi->regs + REG_TX_CFG);
++	}
++	if (rx) {
++		writel_relaxed(spi->ifram_phys + RX_BUF_OFF,
++			       spi->regs + REG_RX_SADDR);
++		writel_relaxed(len, spi->regs + REG_RX_SIZE);
++		writel_relaxed(CFG_EN, spi->regs + REG_RX_CFG);
++	}
++
++	if (tx && rx)
++		bao1x_spi_push(spi, SPIM_FULL_DUPL(len));
++	else if (tx)
++		bao1x_spi_push(spi, SPIM_TX_DATA(len));
++	else
++		bao1x_spi_push(spi, SPIM_RX_DATA(len));
++
++	if (last)
++		bao1x_spi_push(spi, SPIM_EOT);
++
++	ret = bao1x_spi_run(spi);
++	if (ret)
++		return ret;
++
++	if (rx)
++		memcpy_fromio(rx, spi->ifram + RX_BUF_OFF, len);
++	return 0;
++}
++
++static int bao1x_spi_transfer_one_message(struct spi_controller *ctlr,
++					  struct spi_message *msg)
++{
++	struct bao1x_spi *spi = spi_controller_get_devdata(ctlr);
++	struct spi_transfer *xfer;
++	bool first = true;
++	int ret = 0;
++
++	list_for_each_entry(xfer, &msg->transfers, transfer_list) {
++		unsigned int done = 0;
++
++		while (done < xfer->len) {
++			unsigned int chunk = min_t(unsigned int,
++						   xfer->len - done,
++						   DATA_BUF_LEN);
++			bool last =
++				(done + chunk == xfer->len) &&
++				list_is_last(&xfer->transfer_list,
++					     &msg->transfers) &&
++				!xfer->cs_change;
++
++			ret = bao1x_spi_xfer_chunk(spi, msg->spi,
++				xfer->tx_buf ? xfer->tx_buf + done : NULL,
++				xfer->rx_buf ? xfer->rx_buf + done : NULL,
++				chunk, first, last);
++			if (ret)
++				goto out;
++			first = false;
++			done += chunk;
++		}
++		msg->actual_length += xfer->len;
++
++		if (xfer->cs_change) {
++			spi->ncmds = 0;
++			bao1x_spi_push(spi, SPIM_EOT);
++			bao1x_spi_run(spi);
++			first = true;
++		}
++	}
++out:
++	if (ret) {
++		/* Make sure CS is released after a failure. */
++		spi->ncmds = 0;
++		bao1x_spi_push(spi, SPIM_EOT);
++		bao1x_spi_run(spi);
++	}
++	msg->status = ret;
++	spi_finalize_current_message(ctlr);
++	return ret;
++}
++
++static int bao1x_spi_probe(struct platform_device *pdev)
++{
++	struct spi_controller *ctlr;
++	struct bao1x_spi *spi;
++	struct resource *res;
++	struct clk *clk;
++	int ret;
++
++	ctlr = devm_spi_alloc_host(&pdev->dev, sizeof(*spi));
++	if (!ctlr)
++		return -ENOMEM;
++	spi = spi_controller_get_devdata(ctlr);
++
++	spi->regs = devm_platform_ioremap_resource(pdev, 0);
++	if (IS_ERR(spi->regs))
++		return PTR_ERR(spi->regs);
++
++	res = platform_get_resource(pdev, IORESOURCE_MEM, 1);
++	if (!res || resource_size(res) < RX_BUF_OFF + DATA_BUF_LEN) {
++		dev_err(&pdev->dev, "missing or short ifram slice\n");
++		return -ENODEV;
++	}
++	spi->ifram = devm_ioremap_resource(&pdev->dev, res);
++	if (IS_ERR(spi->ifram))
++		return PTR_ERR(spi->ifram);
++	spi->ifram_phys = res->start;
++
++	clk = devm_clk_get(&pdev->dev, NULL);
++	if (IS_ERR(clk))
++		return dev_err_probe(&pdev->dev, PTR_ERR(clk),
++				     "missing perclk\n");
++	spi->perclk = clk_get_rate(clk);
++	if (!spi->perclk)
++		return -EINVAL;
++
++	ctlr->dev.of_node = pdev->dev.of_node;
++	ctlr->num_chipselect = 4;
++	ctlr->mode_bits = SPI_CPOL | SPI_CPHA;
++	ctlr->bits_per_word_mask = SPI_BPW_MASK(8);
++	ctlr->max_speed_hz = spi->perclk / 2;
++	ctlr->transfer_one_message = bao1x_spi_transfer_one_message;
++
++	ret = devm_spi_register_controller(&pdev->dev, ctlr);
++	if (ret)
++		return dev_err_probe(&pdev->dev, ret,
++				     "failed to register controller\n");
++	return 0;
++}
++
++static const struct of_device_id bao1x_spi_of_match[] = {
++	{ .compatible = "baochip,bao1x-udma-spim" },
++	{ }
++};
++MODULE_DEVICE_TABLE(of, bao1x_spi_of_match);
++
++static struct platform_driver bao1x_spi_driver = {
++	.probe = bao1x_spi_probe,
++	.driver = {
++		.name = "spi-bao1x",
++		.of_match_table = bao1x_spi_of_match,
++	},
++};
++module_platform_driver(bao1x_spi_driver);
++
++MODULE_DESCRIPTION("Baochip bao1x uDMA SPI bus driver");
++MODULE_LICENSE("GPL");
+-- 
+2.55.0
+

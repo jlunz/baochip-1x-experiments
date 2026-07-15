@@ -48,3 +48,9 @@ Linux Should Boot To Shell
     Wait For Line On Uart    found 0x48                    timeout=30   testerId=${uart2}
     Write Line To Uart       i2c-tool read 0x48 0          testerId=${uart2}
     Wait For Line On Uart    reg 0x00: 2a                  timeout=30   testerId=${uart2}
+    # SPI: the Renode MT25Q on spim0 CS0 probed as an MTD via its JEDEC id
+    # (boot print is lost to the 4K printk ring; assert the result instead).
+    Write Line To Uart       cat /proc/mtd                 testerId=${uart2}
+    Wait For Line On Uart    spi0.0                        timeout=30   testerId=${uart2}
+    Write Line To Uart       dd if=/dev/mtd1ro bs=256 count=1 2>/dev/null | wc -c    testerId=${uart2}
+    Wait For Line On Uart    256                           timeout=30   testerId=${uart2}

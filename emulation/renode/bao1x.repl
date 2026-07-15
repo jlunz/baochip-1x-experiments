@@ -59,6 +59,16 @@ i2c0: I2C.Baochip.Bao1xUdmaI2c @ sysbus 0x50109000
 
 tmp103: Sensors.TMP103 @ i2c0 0x48
 
+// --- uDMA SPI ---------------------------------------------------------------------
+// spim0; JEDEC NOR flash model on CS0 for the Linux spi-nor test.
+spim0: SPI.Baochip.Bao1xUdmaSpim @ sysbus 0x50105000
+
+spiflash: SPI.Micron_MT25Q @ spim0 0
+    underlyingMemory: spiflashmem
+
+spiflashmem: Memory.MappedMemory
+    size: 0x2000000
+
 // --- uDMA subsystem --------------------------------------------------------------
 // Global clock-gate/event/reset registers (state-holding stub).
 udmactrl: Miscellaneous.Baochip.Bao1xUdmaCtrl @ sysbus 0x50100000

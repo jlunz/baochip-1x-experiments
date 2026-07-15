@@ -50,3 +50,15 @@
 	status = "okay";
 	clocks = <&perclk>;
 };
+
+&spim0 {
+	status = "okay";
+	clocks = <&perclk>;
+
+	flash@0 {
+		/* Renode Micron_MT25Q model on CS0 (linux.robot). */
+		compatible = "jedec,spi-nor";
+		reg = <0>;
+		spi-max-frequency = <10000000>;
+	};
+};

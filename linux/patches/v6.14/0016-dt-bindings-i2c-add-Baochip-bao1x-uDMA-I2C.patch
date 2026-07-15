@@ -1,7 +1,7 @@
 From 06c4aed733b32e33cf6a84fa2b71d2f1898a99e7 Mon Sep 17 00:00:00 2001
 From: Claude <noreply@anthropic.com>
 Date: Wed, 15 Jul 2026 15:47:08 +0200
-Subject: [PATCH 16/17] dt-bindings: i2c: add Baochip bao1x uDMA I2C
+Subject: [PATCH 16/19] dt-bindings: i2c: add Baochip bao1x uDMA I2C
 
 Command-stream I2C master whose uDMA channels can only reach the
 on-chip IFRAM, so each bus gets an IFRAM slice for its command/TX/RX

@@ -240,3 +240,19 @@ SimpleContainer I2C slaves; TMP103 at 0x48. Rootfs: i2c-tool (I2C_RDWR).
 linux.robot: `i2c-tool scan` finds 0x48, temperature register reads back.
 Driver bug found by the test: pinconf group-set was missing in pinctrl-bao1x
 (bias-pull-up on the i2c0 group failed the whole map) — folded into 0015.
+
+## 2026-07-15 (cont.) — Phase 5c: uDMA SPI GREEN; rootfs slimmed (no daemons)
+
+Kernel patches 0018/0019: dt-binding + `spi-bao1x` (command-stream master,
+same IFRAM-bounce architecture as I2C; CS lives in the stream → whole
+spi_message compiled into one command list, transfer_one_message, polled).
+Renode Bao1xUdmaSpim interprets CFG/SOT/SEND_CMD/TX/RX/FULL_DUPL/EOT
+against container SPI slaves; Micron MT25Q on CS0. Verified through the
+kernel's own JEDEC probe: /proc/mtd gains "spi0.0" (mtd1), 256-byte read OK.
+Two lessons: (1) adding SPI+MTD_SPI_NOR pushed the system into boot OOM —
+the buildroot demo daemons (syslogd/klogd/crond/network, ~500K RSS) had no
+business on a 2MiB machine; replaced via rootfs overlay with a minimal
+inittab (getty only) → 428K free after login with ALL drivers loaded.
+(2) don't assert on early printk lines: the 4K ring overwrites them before
+the console registers — assert on /proc/mtd instead. Series at 19 patches.
+Dabao UF2 rebuilt (kernel+rootfs+shim; shim now ungates uart2+i2c0+spim0).

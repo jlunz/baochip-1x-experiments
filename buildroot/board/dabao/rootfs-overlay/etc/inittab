@@ -1,0 +1,10 @@
+# bao1x minimal inittab: every megabyte counts on a 2MiB machine, so no
+# syslogd/klogd/crond/network daemons - just a console login.
+# devtmpfs is mounted by the kernel (CONFIG_DEVTMPFS_MOUNT).
+::sysinit:/bin/mount -t proc proc /proc
+::sysinit:/bin/mkdir -p /tmp
+::sysinit:/bin/mount -t tmpfs -o size=64k tmpfs /tmp
+::sysinit:/bin/hostname -F /etc/hostname
+::respawn:/sbin/getty -L console 0 vt100
+::ctrlaltdel:/sbin/reboot
+::shutdown:/bin/umount -a -r
