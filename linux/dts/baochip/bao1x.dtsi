@@ -155,7 +155,7 @@
 					read-only;
 				};
 
-				partition@360000 {
+				data_part: partition@360000 {
 					label = "data";
 					reg = <0x360000 0x7a000>;
 				};

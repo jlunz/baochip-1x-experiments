@@ -60,3 +60,14 @@ Linux Should Boot To Shell
     Wait For Line On Uart    dev:mtd                       timeout=30   testerId=${uart2}
     Write Line To Uart       echo -n RRAMWRITETEST | dd of=/dev/$(cat /tmp/m) bs=13 count=1 2>/dev/null && echo "READBACK:$(dd if=/dev/$(cat /tmp/m) bs=13 count=1 2>/dev/null)"    testerId=${uart2}    waitForEcho=false
     Wait For Line On Uart    READBACK:RRAMWRITETEST        timeout=30   testerId=${uart2}
+    # JFFS2 on the data partition: erase the block dirtied by the raw test
+    # back to 0xFF (jffs2 refuses media with garbage and no valid nodes),
+    # then mount, create a file, remount, read it back.
+    Write Line To Uart       tr '\0' '\377' < /dev/zero | dd of=/dev/$(cat /tmp/m) bs=4096 count=1 2>/dev/null && echo FF_OK    testerId=${uart2}    waitForEcho=false
+    Wait For Line On Uart    FF_OK                         timeout=60   testerId=${uart2}
+    Write Line To Uart       mount -t jffs2 mtd:data /mnt && echo MOUNT_OK    testerId=${uart2}
+    Wait For Line On Uart    MOUNT_OK                      timeout=60   testerId=${uart2}
+    Write Line To Uart       echo jffs2data > /mnt/t && umount /mnt && echo UMOUNT_OK    testerId=${uart2}    waitForEcho=false
+    Wait For Line On Uart    UMOUNT_OK                     timeout=60   testerId=${uart2}
+    Write Line To Uart       mount -t jffs2 mtd:data /mnt && cat /mnt/t    testerId=${uart2}
+    Wait For Line On Uart    jffs2data                     timeout=60   testerId=${uart2}

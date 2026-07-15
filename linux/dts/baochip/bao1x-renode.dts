@@ -62,3 +62,9 @@
 		spi-max-frequency = <10000000>;
 	};
 };
+
+&data_part {
+	/* Small in emulation: every byte is a slow peripheral access in
+	 * Renode, and JFFS2 scans the whole partition at mount. */
+	reg = <0x360000 0x20000>;
+};

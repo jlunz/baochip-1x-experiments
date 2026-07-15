@@ -80,7 +80,17 @@ namespace Antmicro.Renode.Peripherals.Miscellaneous.Baochip
 
         public void Reset()
         {
-            // Nonvolatile: contents survive reset; fresh model = erased.
+            // Nonvolatile: contents survive reset. A fresh model reads as
+            // erased (0xFF) so flash filesystems see clean blocks instead
+            // of grinding through garbage collection of "dirty" zeros.
+            if(!initialized)
+            {
+                for(var i = 0; i < data.Length; i++)
+                {
+                    data[i] = 0xff;
+                }
+                initialized = true;
+            }
             lineAddress = ~0u;
         }
 
@@ -169,5 +179,6 @@ namespace Antmicro.Renode.Peripherals.Miscellaneous.Baochip
         private readonly byte[] data;
         private readonly uint[] lineBuffer;
         private uint lineAddress;
+        private bool initialized;
     }
 }

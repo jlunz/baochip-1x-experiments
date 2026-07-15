@@ -276,3 +276,19 @@ via the RRC path. Robot gotchas: Renode's keyword server parses any
 `name=value` argument as named (escaping doesn't help — avoid '=' in
 patterns) and Write Line To Uart's echo check breaks on wrapped lines
 (waitForEcho=false for long commands).
+
+## 2026-07-15 (cont.) — Phase 5d': JFFS2 /data GREEN; SDIO ruled out for Dabao
+
+JFFS2 mounts on the RRAM "data" partition with full persistence
+(write→umount→remount→readback in linux.robot). Two 2MiB-lessons:
+- **CONFIG_JFFS2_ZLIB (default y) OOM-panics the kernel at boot** — the zlib
+  deflate workspace alone is ~270K. Disabled via JFFS2_COMPRESSION_OPTIONS;
+  rtime compression stays (nearly free).
+- jffs2 refuses media with garbage and zero valid nodes ("cowardly
+  refusing") — the robot erases the raw-test block back to 0xFF first.
+Renode: data window now initializes to 0xFF (erased convention — zeros made
+jffs2 GC grind for 30+ min through the slow peripheral path) and the Renode
+board DT shrinks the data partition to 128K (mount scans every byte; full
+488K stays on hardware). SDIO: the Dabao routes no SD slot (xous dabao
+board file has no SD pins; SDDC is device-mode, UDMA SDIO is for baosec) —
+SD support is out of scope for this board, revisit if hardware appears.
