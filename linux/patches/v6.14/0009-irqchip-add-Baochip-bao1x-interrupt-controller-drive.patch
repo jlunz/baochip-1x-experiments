@@ -1,7 +1,7 @@
-From 976eff9e89e6e005dba98e1aab02d8ed90f4e30f Mon Sep 17 00:00:00 2001
+From cb195c26bb47422f6f2c09dc7afb385767217d67 Mon Sep 17 00:00:00 2001
 From: Claude <noreply@anthropic.com>
 Date: Wed, 15 Jul 2026 10:52:42 +0200
-Subject: [PATCH 09/10] irqchip: add Baochip bao1x interrupt controller drivers
+Subject: [PATCH 09/12] irqchip: add Baochip bao1x interrupt controller drivers
 
 The bao1x SoC's VexRiscv core has no PLIC or CLINT; external interrupts
 arrive through a 32-line interrupt array (VexRiscv
@@ -18,19 +18,19 @@ irq-bao1x-irqarray models each bank as a chained edge-type domain.
 
 Co-developed-by: Claude <noreply@anthropic.com>
 ---
- drivers/irqchip/Kconfig              |   8 ++
+ drivers/irqchip/Kconfig              |  10 ++
  drivers/irqchip/Makefile             |   1 +
  drivers/irqchip/irq-bao1x-intc.c     | 102 ++++++++++++++++++
  drivers/irqchip/irq-bao1x-irqarray.c | 152 +++++++++++++++++++++++++++
- 4 files changed, 263 insertions(+)
+ 4 files changed, 265 insertions(+)
  create mode 100644 drivers/irqchip/irq-bao1x-intc.c
  create mode 100644 drivers/irqchip/irq-bao1x-irqarray.c
 
 diff --git a/drivers/irqchip/Kconfig b/drivers/irqchip/Kconfig
-index c11b9965c..5f085a8b7 100644
+index c11b9965c..9124d7ee0 100644
 --- a/drivers/irqchip/Kconfig
 +++ b/drivers/irqchip/Kconfig
-@@ -598,6 +598,14 @@ config RISCV_IMSIC_PCI
+@@ -598,6 +598,16 @@ config RISCV_IMSIC_PCI
  	depends on PCI_MSI
  	default RISCV_IMSIC
  
@@ -38,9 +38,11 @@ index c11b9965c..5f085a8b7 100644
 +	bool "Baochip bao1x interrupt controllers"
 +	depends on RISCV
 +	help
-+	  Support for the Baochip bao1x interrupt fabric: the VexRiscv
-+	  32-line external interrupt array (custom supervisor CSRs
-+	  0x9C0/0xDC0) and the cascaded IRQARRAY event-aggregator banks.
++	  Support for the Baochip bao1x interrupt fabric. The SoC has no
++	  PLIC: a VexRiscv 32-line external interrupt array (controlled
++	  through custom supervisor CSRs 0x9C0/0xDC0) feeds the hart's
++	  external interrupt, and LiteX EventManager-style IRQARRAY banks
++	  aggregate up to 16 peripheral events onto each array line.
 +
  config SIFIVE_PLIC
  	bool

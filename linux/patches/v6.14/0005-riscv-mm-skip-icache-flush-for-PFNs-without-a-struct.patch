@@ -1,7 +1,7 @@
 From cc892d5b65e45ce96ae57ded7ff726fc3a5b86a1 Mon Sep 17 00:00:00 2001
 From: Claude <noreply@anthropic.com>
 Date: Tue, 14 Jul 2026 19:23:13 +0200
-Subject: [PATCH 05/10] riscv: mm: skip icache flush for PFNs without a struct
+Subject: [PATCH 05/12] riscv: mm: skip icache flush for PFNs without a struct
  page
 
 flush_icache_pte() unconditionally does page_folio(pte_page(pte)).

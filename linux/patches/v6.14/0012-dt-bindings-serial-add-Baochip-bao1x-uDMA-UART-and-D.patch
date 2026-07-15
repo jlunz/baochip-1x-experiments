@@ -1,0 +1,139 @@
+From bdf676363a67dfd254346e3238ee67107594c040 Mon Sep 17 00:00:00 2001
+From: Claude <noreply@anthropic.com>
+Date: Wed, 15 Jul 2026 11:14:44 +0200
+Subject: [PATCH 12/12] dt-bindings: serial: add Baochip bao1x uDMA UART and
+ DUART
+
+The uDMA UART takes two register ranges - its MMIO registers and a
+private IFRAM slice for the DMA-only transmitter's bounce buffer - and
+two IRQARRAY events (rx char, tx done). The DUART is a four-register
+transmit-only debug UART used as earlycon.
+
+Co-developed-by: Claude <noreply@anthropic.com>
+---
+ .../bindings/serial/baochip,bao1x-duart.yaml  | 35 ++++++++++
+ .../serial/baochip,bao1x-udma-uart.yaml       | 70 +++++++++++++++++++
+ 2 files changed, 105 insertions(+)
+ create mode 100644 Documentation/devicetree/bindings/serial/baochip,bao1x-duart.yaml
+ create mode 100644 Documentation/devicetree/bindings/serial/baochip,bao1x-udma-uart.yaml
+
+diff --git a/Documentation/devicetree/bindings/serial/baochip,bao1x-duart.yaml b/Documentation/devicetree/bindings/serial/baochip,bao1x-duart.yaml
+new file mode 100644
+index 000000000..96467a27c
+--- /dev/null
++++ b/Documentation/devicetree/bindings/serial/baochip,bao1x-duart.yaml
+@@ -0,0 +1,35 @@
++# SPDX-License-Identifier: (GPL-2.0-only OR BSD-2-Clause)
++%YAML 1.2
++---
++$id: http://devicetree.org/schemas/serial/baochip,bao1x-duart.yaml#
++$schema: http://devicetree.org/meta-schemas/core.yaml#
++
++title: Baochip bao1x DUART debug transmitter
++
++description:
++  Four-register, transmit-only debug UART on the Baochip bao1x SoC. It
++  needs no clock or pin configuration and is used as earlycon; there is no
++  receive direction, so no full serial driver binds to it.
++
++maintainers:
++  - Julian Lunz <julianlunz+claude@proton.me>
++
++properties:
++  compatible:
++    const: baochip,bao1x-duart
++
++  reg:
++    maxItems: 1
++
++required:
++  - compatible
++  - reg
++
++additionalProperties: false
++
++examples:
++  - |
++    serial@40042000 {
++        compatible = "baochip,bao1x-duart";
++        reg = <0x40042000 0x10>;
++    };
+diff --git a/Documentation/devicetree/bindings/serial/baochip,bao1x-udma-uart.yaml b/Documentation/devicetree/bindings/serial/baochip,bao1x-udma-uart.yaml
+new file mode 100644
+index 000000000..eae6a14f4
+--- /dev/null
++++ b/Documentation/devicetree/bindings/serial/baochip,bao1x-udma-uart.yaml
+@@ -0,0 +1,70 @@
++# SPDX-License-Identifier: (GPL-2.0-only OR BSD-2-Clause)
++%YAML 1.2
++---
++$id: http://devicetree.org/schemas/serial/baochip,bao1x-udma-uart.yaml#
++$schema: http://devicetree.org/meta-schemas/core.yaml#
++
++title: Baochip bao1x uDMA UART
++
++description:
++  PULP-style uDMA UART on the Baochip bao1x SoC. The transmitter is
++  DMA-only and can fetch solely from the on-chip IFRAM banks, so each port
++  is assigned a private IFRAM slice used as a transmit bounce buffer. The
++  receiver has a PIO path with a per-character event. Events are routed
++  through the bao1x IRQARRAY bank 5 (slots 4n..4n+3 for uart n = rx dma
++  done, tx dma done, rx char, error).
++
++maintainers:
++  - Julian Lunz <julianlunz+claude@proton.me>
++
++allOf:
++  - $ref: serial.yaml#
++
++properties:
++  compatible:
++    const: baochip,bao1x-udma-uart
++
++  reg:
++    items:
++      - description: UART registers
++      - description: IFRAM slice for the transmit DMA bounce buffer
++
++  reg-names:
++    items:
++      - const: regs
++      - const: txram
++
++  interrupts:
++    items:
++      - description: receive character event
++      - description: transmit DMA done event
++
++  interrupt-names:
++    items:
++      - const: rx
++      - const: tx
++
++  clock-frequency:
++    description: The peripheral clock (perclk) feeding the baud divider.
++
++required:
++  - compatible
++  - reg
++  - reg-names
++  - interrupts
++  - interrupt-names
++  - clock-frequency
++
++unevaluatedProperties: false
++
++examples:
++  - |
++    serial@50103000 {
++        compatible = "baochip,bao1x-udma-uart";
++        reg = <0x50103000 0x1000>, <0x50010000 0x1000>;
++        reg-names = "regs", "txram";
++        interrupt-parent = <&irqarray5>;
++        interrupts = <10>, <9>;
++        interrupt-names = "rx", "tx";
++        clock-frequency = <100000000>;
++    };
+-- 
+2.55.0
+

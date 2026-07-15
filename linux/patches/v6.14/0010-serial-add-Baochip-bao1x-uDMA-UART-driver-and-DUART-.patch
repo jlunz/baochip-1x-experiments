@@ -1,7 +1,7 @@
-From 070213be775f94ed3088762ae4a13d439f2c1b34 Mon Sep 17 00:00:00 2001
+From 85c680c8ab803afc90e9659060230d621ece748f Mon Sep 17 00:00:00 2001
 From: Claude <noreply@anthropic.com>
 Date: Wed, 15 Jul 2026 10:52:58 +0200
-Subject: [PATCH 10/10] serial: add Baochip bao1x uDMA UART driver and DUART
+Subject: [PATCH 10/12] serial: add Baochip bao1x uDMA UART driver and DUART
  earlycon
 
 The bao1x console UART is a PULP-style uDMA UART with an asymmetric
@@ -20,20 +20,20 @@ has no receiver.
 
 Co-developed-by: Claude <noreply@anthropic.com>
 ---
- drivers/tty/serial/Kconfig       |  19 ++
+ drivers/tty/serial/Kconfig       |  24 ++
  drivers/tty/serial/Makefile      |   2 +
  drivers/tty/serial/bao1x_duart.c |  52 ++++
  drivers/tty/serial/bao1x_uart.c  | 457 +++++++++++++++++++++++++++++++
  include/uapi/linux/serial_core.h |   3 +
- 5 files changed, 533 insertions(+)
+ 5 files changed, 538 insertions(+)
  create mode 100644 drivers/tty/serial/bao1x_duart.c
  create mode 100644 drivers/tty/serial/bao1x_uart.c
 
 diff --git a/drivers/tty/serial/Kconfig b/drivers/tty/serial/Kconfig
-index 976dae3bb..0cbf50e32 100644
+index 976dae3bb..bb6afcc3c 100644
 --- a/drivers/tty/serial/Kconfig
 +++ b/drivers/tty/serial/Kconfig
-@@ -1493,6 +1493,25 @@ config SERIAL_MILBEAUT_USIO_CONSOLE
+@@ -1493,6 +1493,30 @@ config SERIAL_MILBEAUT_USIO_CONSOLE
  	  receives all kernel messages and warnings and which allows logins in
  	  single user mode).
  
@@ -44,7 +44,10 @@ index 976dae3bb..0cbf50e32 100644
 +	select SERIAL_CORE
 +	help
 +	  Serial driver for the PULP-style uDMA UARTs on the Baochip bao1x
-+	  SoC (DMA-only transmitter bounced through IFRAM, PIO receiver).
++	  SoC. The transmitter is DMA-only and fetches from a dedicated
++	  IFRAM slice used as a bounce buffer; the receiver runs in PIO
++	  mode with a per-character interrupt. UART2 is the console on the
++	  Dabao board.
 +
 +config SERIAL_BAO1X_CONSOLE
 +	bool "Console on bao1x uDMA UART"
@@ -54,7 +57,9 @@ index 976dae3bb..0cbf50e32 100644
 +	default y
 +	help
 +	  Console support for the bao1x uDMA UART, plus an earlycon on the
-+	  TX-only DUART debug UART ("earlycon=bao1x_duart").
++	  TX-only DUART debug UART. The DUART needs no clock or pin setup
++	  at all, which makes it the earliest possible sign of life on
++	  this SoC ("earlycon" with a stdout-path, or earlycon=bao1x_duart).
 +
  config SERIAL_LITEUART
  	tristate "LiteUART serial port support"
