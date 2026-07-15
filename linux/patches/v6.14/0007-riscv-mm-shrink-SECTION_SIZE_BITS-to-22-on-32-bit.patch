@@ -1,0 +1,55 @@
+From 84b9a4e439d0207621b28e8c842f582103f1ee4d Mon Sep 17 00:00:00 2001
+From: Claude <noreply@anthropic.com>
+Date: Wed, 15 Jul 2026 06:03:25 +0200
+Subject: [PATCH 7/8] riscv: mm: shrink SECTION_SIZE_BITS to 22 on 32-bit
+
+XIP_KERNEL depends on SPARSEMEM, and the 32-bit systems that want XIP
+are tiny embedded targets.  With the current 128MiB sections, populating
+the memmap of even a single section allocates 1MiB
+(PAGES_PER_SECTION * sizeof(struct page)), which is more memory than
+some of these machines have in total.  A 2MiB-RAM system panics during
+sparse_init():
+
+  Kernel panic - not syncing: __populate_section_memmap: Failed to
+  allocate 1048576 bytes align=0x1000 nid=0 from=0x20000000
+
+Use 4MiB sections on 32-bit instead.  That is the smallest size classic
+SPARSEMEM permits (SECTION_SIZE_BITS >= MAX_PAGE_ORDER + PAGE_SHIFT) and
+brings the per-section memmap down to 32KiB.  The cost on larger 32-bit
+systems is bounded: with MAX_PHYSMEM_BITS = 32 there are at most 1024
+sections, an 8KiB static array with SPARSEMEM_STATIC.
+
+64-bit keeps the existing 128MiB sections.
+
+Co-developed-by: Claude <noreply@anthropic.com>
+---
+ arch/riscv/include/asm/sparsemem.h | 10 +++++++++-
+ 1 file changed, 9 insertions(+), 1 deletion(-)
+
+diff --git a/arch/riscv/include/asm/sparsemem.h b/arch/riscv/include/asm/sparsemem.h
+index 2f901a410..b8e69c274 100644
+--- a/arch/riscv/include/asm/sparsemem.h
++++ b/arch/riscv/include/asm/sparsemem.h
+@@ -6,10 +6,18 @@
+ #ifdef CONFIG_SPARSEMEM
+ #ifdef CONFIG_64BIT
+ #define MAX_PHYSMEM_BITS	56
++#define SECTION_SIZE_BITS	27
+ #else
+ #define MAX_PHYSMEM_BITS	32
++/*
++ * XIP_KERNEL depends on SPARSEMEM, and 32-bit XIP targets are tiny embedded
++ * systems: with 128MiB sections, the memmap of a single section (1MiB) can
++ * exceed the entire RAM of the machine.  4MiB sections are the smallest
++ * classic-SPARSEMEM allows (MAX_PAGE_ORDER + PAGE_SHIFT) and keep the
++ * static section array at 8KiB (2^(32 - 22) sections).
++ */
++#define SECTION_SIZE_BITS	22
+ #endif /* CONFIG_64BIT */
+-#define SECTION_SIZE_BITS	27
+ #endif /* CONFIG_SPARSEMEM */
+ 
+ #endif /* _ASM_RISCV_SPARSEMEM_H */
+-- 
+2.55.0
+

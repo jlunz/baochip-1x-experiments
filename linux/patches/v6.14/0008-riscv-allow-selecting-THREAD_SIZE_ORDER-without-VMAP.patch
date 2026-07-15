@@ -1,0 +1,49 @@
+From a42928b89a66e7871ce38d1c8ed8d1217f994b73 Mon Sep 17 00:00:00 2001
+From: Claude <noreply@anthropic.com>
+Date: Wed, 15 Jul 2026 06:21:54 +0200
+Subject: [PATCH 8/8] riscv: allow selecting THREAD_SIZE_ORDER without
+ VMAP_STACK
+
+Tiny 32-bit systems (2MiB of RAM, XIP kernel) cannot rely on order-1
+allocations: with a zone this small, mobility grouping is disabled and
+memory fragments into single pages within seconds of boot, after which
+every kthread spawn and every fork() fails to allocate an 8KiB stack
+even with hundreds of KiB free:
+
+  Normal: 181*4kB (M) 0*8kB 0*16kB ... = 724kB
+  kthreadd invoked oom-killer: gfp_mask=0x400dc0(GFP_KERNEL_ACCOUNT|
+  __GFP_ZERO), order=1
+
+VMAP_STACK is the usual answer, but it is 64-bit only on RISC-V: 32-bit
+still handles vmalloc mappings by lazily faulting the missing PGD entry
+in (do_page_fault -> vmalloc_fault), and a lazy fault cannot be taken on
+the stack the trap handler is about to push to.  x86 has the same
+limitation for the same reason.
+
+Let EXPERT kernels choose THREAD_SIZE_ORDER=0 without VMAP_STACK
+instead.  With IRQ_STACKS enabled (the default), hard and soft IRQs run
+on their own per-cpu stacks, so a 4KiB task stack bounds only the
+syscall depth, which is the m68k model.  The default for every
+configuration is unchanged.
+
+Co-developed-by: Claude <noreply@anthropic.com>
+---
+ arch/riscv/Kconfig | 2 +-
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+
+diff --git a/arch/riscv/Kconfig b/arch/riscv/Kconfig
+index 3378150d3..eb2ea1f80 100644
+--- a/arch/riscv/Kconfig
++++ b/arch/riscv/Kconfig
+@@ -859,7 +859,7 @@ config IRQ_STACKS
+ 	  overflows. We may save some memory footprint by disabling IRQ_STACKS.
+ 
+ config THREAD_SIZE_ORDER
+-	int "Kernel stack size (in power-of-two numbers of page size)" if VMAP_STACK && EXPERT
++	int "Kernel stack size (in power-of-two numbers of page size)" if EXPERT
+ 	range 0 4
+ 	default 1 if 32BIT
+ 	default 2
+-- 
+2.55.0
+

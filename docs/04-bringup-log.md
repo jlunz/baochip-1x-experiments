@@ -81,3 +81,43 @@ port itself). One remaining phase-1 item: buildroot silently fell back to ilp32d
 (double-float) because the defconfig used a wrong symbol (`BR2_riscv_custom=y` is the
 choice symbol); soft-float rootfs rebuild running — rcS SIGILL on `fsd` will disappear
 with it.
+
+## 2026-07-15 — Phase 1 complete: shell in 2 MiB RAM
+
+Soft-float rootfs verified: `busybox` now reads `soft-float ABI` (readelf flags 0x1,
+RVC), rcS runs to completion — the `fsd` SIGILL is gone. Full boot at 12MiB:
+MemTotal 10496K, ~2.2MiB used after boot with syslogd/klogd/crond running.
+
+Then the real gate: `MEM=6M` gives the kernel a 2MiB RAM window (0x80400000 +
+0x200000), exactly the bao1x SRAM budget. Three successive walls, each measured, each
+fixed at the root:
+
+1. **SPARSEMEM memmap panic.** `__populate_section_memmap: Failed to allocate 1048576
+   bytes` — rv32 `SECTION_SIZE_BITS=27` means one 128MiB section costs a 1MiB memmap,
+   half the machine. XIP_KERNEL *requires* SPARSEMEM, so this hits every small-RAM rv32
+   XIP target. → kernel patch 0007: 4MiB sections on 32-bit (the classic-SPARSEMEM
+   minimum, `MAX_PAGE_ORDER + PAGE_SHIFT`); worst-case static cost 8KiB.
+2. **printk ring buffer: 528KiB.** Default `LOG_BUF_SHIFT=17` allocates 128K of data
+   + 400K(!) of per-record metadata. → `CONFIG_LOG_BUF_SHIFT=12` in the fragment
+   (rwdata dropped 469K→82K, reserved 824K→312K).
+3. **Slab: 1.5MiB unreclaimable.** Ranked via a temporary SLUB_DEBUG boot at MEM=8M:
+   `kernfs_node_cache` 570K + its inodes/dentries/kobject names (sysfs allocates a
+   node per kobject, eagerly) and ~170K of block-layer bio/biovec mempools nothing
+   uses (root is CRAMFS_MTD, no block device anywhere). → `CONFIG_SYSFS=n`,
+   `CONFIG_BLOCK=n` (devtmpfs provides /dev without sysfs).
+4. **Fragmentation kills order-1 stacks.** With 724K free — all as single 4K pages,
+   mobility grouping disabled (zone < pageblock) — `kthreadd` OOMs on an 8K stack;
+   every later fork() would too. VMAP_STACK is 64-bit-only on riscv *for cause*
+   (rv32 still lazy-faults vmalloc PGD entries, and a lazy fault can't be taken on
+   the stack the trap handler pushes to — same reason x86_32 never got it). → kernel
+   patch 0008: allow `THREAD_SIZE_ORDER` selection without VMAP_STACK; fragment sets
+   4K stacks + keeps IRQ_STACKS (default y) + `SCHED_STACK_END_CHECK` as a canary
+   while we qualify the depth.
+
+**Result: interactive root shell at 2048K.** `Memory: 1568K/2048K available (976K
+kernel code [in flash], 73K rwdata, 169K rodata, 94K init, 56K bss, 260K reserved)`;
+after boot with all three demo daemons still running: MemTotal 1816K, MemFree ~250K.
+The bao1x system won't run those daemons, and the SBI shim reserves only a few KiB,
+so the budget closes with margin. Kernel series is now 8 patches (re-exported to
+linux/patches/v6.14/). KALLSYMS costs only flash (rodata is XIP) — worth enabling
+for hardware bring-up debugging later.
