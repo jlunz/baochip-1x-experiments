@@ -151,3 +151,30 @@ Renode findings:
 
 Memory: 1560K/2032K available, boots clean with the 4K-stack + no-sysfs +
 no-block + LOG_BUF=4K recipe from phase 1. No allocation failures.
+
+## 2026-07-15 (cont.) — Phase 3b: native driver stack GREEN in Renode
+
+Replaced the SBI-console bring-up vehicle with the port's real drivers — all
+passing linux.robot on the first run:
+
+- `irq-bao1x-intc` (kernel patch 0009): the 32-line VexRiscv external interrupt
+  array as a chained irqchip on riscv-intc hwirq 9 (S-ext), mask CSR 0x9C0,
+  pending CSR 0xDC0, level-type children. First S-mode exercise of Renode's
+  supervisor CSR array — works.
+- `irq-bao1x-irqarray` (0009): IRQARRAY banks as chained edge-type domains
+  (EV_PENDING w1c ack, EV_ENABLE mask). DT has bank 5 (uDMA UARTs) so far.
+- `bao1x_uart` (0010): uDMA UART serial+console "ttyBAO0". DMA-only TX bounced
+  through a private IFRAM0 slice (DT reg entry "txram" @0x50010000, kfifo →
+  memcpy_toio → TX_SADDR/SIZE/CFG kick, "tx done" irq advances); PIO RX via
+  VALID/DATA on the "rx char" irq (slots 9/10 of irqarray5). Console writes
+  synchronous. PORT_BAO1X = 124.
+- `bao1x_duart` (0010): DUART earlycon — works with zero setup, the earliest
+  sign of life for hardware bring-up (`earlycon` + stdout-path=&duart).
+
+Boot flow now: DUART earlycon → ttyBAO0 console handover → interactive login,
+`sleep 1` returns (SBI timer unchanged). hvc0/DBCN remains built as fallback.
+Deferred by choice: native TIMER0/TICKTIMER drivers — SBI set_timer + rdtime
+is the standard RISC-V mechanism and measured fine; a TICKTIMER clocksource
+is a phase-5 optimization (saves the rdtime trap per clock read on silicon).
+Watch item for phase 4: tx_empty()/tx-done event vs. real shifter drain
+(STATUS.busy) — indistinguishable in Renode's instant DMA.

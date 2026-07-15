@@ -13,10 +13,10 @@ Linux Should Boot To Shell
     ${duart}=          Create Terminal Tester    sysbus.duart
     ${uart2}=          Create Terminal Tester    sysbus.uart2
     Start Emulation
-    # Shim runs first, reporting on the debug UART...
+    # Shim banner and kernel earlycon (bao1x_duart) on the debug UART...
     Wait For Line On Uart    bao1x-sbi: entering kernel    timeout=10   testerId=${duart}
-    # ...then the kernel console (earlycon=sbi -> DBCN -> uart2).
-    Wait For Line On Uart    Linux version                 timeout=30   testerId=${uart2}
+    Wait For Line On Uart    Linux version                 timeout=30   testerId=${duart}
+    # ...then the native uDMA UART console (ttyBAO0) takes over on uart2.
     Wait For Line On Uart    VFS: Mounted root             timeout=120  testerId=${uart2}
     Wait For Prompt On Uart  dabao login:                  timeout=120  testerId=${uart2}
     Write Line To Uart       root                          testerId=${uart2}

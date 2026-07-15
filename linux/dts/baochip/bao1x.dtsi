@@ -39,11 +39,49 @@
 		};
 	};
 
+	/* VexRiscv 32-line external interrupt array: CSR-controlled
+	 * (supervisor mask 0x9C0 / pending 0xDC0), no MMIO registers. */
+	bao1x_intc: interrupt-controller {
+		compatible = "baochip,bao1x-intc";
+		interrupt-controller;
+		#interrupt-cells = <1>;
+		interrupts-extended = <&cpu0_intc 9>;
+	};
+
 	soc {
 		compatible = "simple-bus";
 		#address-cells = <1>;
 		#size-cells = <1>;
 		ranges;
+
+		/* Bank 5 aggregates the four uDMA UARTs (events 4n..4n+3:
+		 * rx dma, tx dma, rx char, err). Banks 0-4 and 6-19 follow
+		 * as their consumers gain drivers. */
+		irqarray5: interrupt-controller@e0013000 {
+			compatible = "baochip,bao1x-irqarray";
+			reg = <0xe0013000 0x1000>;
+			interrupt-controller;
+			#interrupt-cells = <1>;
+			interrupts-extended = <&bao1x_intc 5>;
+		};
+
+		duart: serial@40042000 {
+			/* TX-only debug UART; earlycon only. */
+			compatible = "baochip,bao1x-duart";
+			reg = <0x40042000 0x10>;
+		};
+
+		uart2: serial@50103000 {
+			compatible = "baochip,bao1x-udma-uart";
+			/* Registers + a private IFRAM0 slice: the uDMA
+			 * transmitter can only fetch from IFRAM. */
+			reg = <0x50103000 0x1000>, <0x50010000 0x1000>;
+			reg-names = "regs", "txram";
+			interrupt-parent = <&irqarray5>;
+			interrupts = <10>, <9>;
+			interrupt-names = "rx", "tx";
+			/* clock-frequency (perclk) is board-provided. */
+		};
 
 		rram: flash@60000000 {
 			/* XIP reads; writes need the RRC (phase-5 MTD driver).

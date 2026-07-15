@@ -1,0 +1,328 @@
+From 976eff9e89e6e005dba98e1aab02d8ed90f4e30f Mon Sep 17 00:00:00 2001
+From: Claude <noreply@anthropic.com>
+Date: Wed, 15 Jul 2026 10:52:42 +0200
+Subject: [PATCH 09/10] irqchip: add Baochip bao1x interrupt controller drivers
+
+The bao1x SoC's VexRiscv core has no PLIC or CLINT; external interrupts
+arrive through a 32-line interrupt array (VexRiscv
+ExternalInterruptArrayPlugin) controlled by custom supervisor CSRs:
+0x9C0 masks lines, 0xDC0 reads pending state. The array line feeds the
+hart's supervisor external interrupt, so irq-bao1x-intc chains off
+riscv-intc hwirq 9 and dispatches by scanning 0xDC0. Lines are
+level-type: sources latch and hold until acked at the source.
+
+Most sources are behind IRQARRAY banks - LiteX EventManager-style
+aggregators (up to 16 events each, EV_PENDING write-1-to-clear,
+EV_ENABLE gate) that collapse a bank onto one array line.
+irq-bao1x-irqarray models each bank as a chained edge-type domain.
+
+Co-developed-by: Claude <noreply@anthropic.com>
+---
+ drivers/irqchip/Kconfig              |   8 ++
+ drivers/irqchip/Makefile             |   1 +
+ drivers/irqchip/irq-bao1x-intc.c     | 102 ++++++++++++++++++
+ drivers/irqchip/irq-bao1x-irqarray.c | 152 +++++++++++++++++++++++++++
+ 4 files changed, 263 insertions(+)
+ create mode 100644 drivers/irqchip/irq-bao1x-intc.c
+ create mode 100644 drivers/irqchip/irq-bao1x-irqarray.c
+
+diff --git a/drivers/irqchip/Kconfig b/drivers/irqchip/Kconfig
+index c11b9965c..5f085a8b7 100644
+--- a/drivers/irqchip/Kconfig
++++ b/drivers/irqchip/Kconfig
+@@ -598,6 +598,14 @@ config RISCV_IMSIC_PCI
+ 	depends on PCI_MSI
+ 	default RISCV_IMSIC
+ 
++config BAO1X_INTC
++	bool "Baochip bao1x interrupt controllers"
++	depends on RISCV
++	help
++	  Support for the Baochip bao1x interrupt fabric: the VexRiscv
++	  32-line external interrupt array (custom supervisor CSRs
++	  0x9C0/0xDC0) and the cascaded IRQARRAY event-aggregator banks.
++
+ config SIFIVE_PLIC
+ 	bool
+ 	depends on RISCV
+diff --git a/drivers/irqchip/Makefile b/drivers/irqchip/Makefile
+index 25e9ad29b..ad3385660 100644
+--- a/drivers/irqchip/Makefile
++++ b/drivers/irqchip/Makefile
+@@ -101,6 +101,7 @@ obj-$(CONFIG_RISCV_INTC)		+= irq-riscv-intc.o
+ obj-$(CONFIG_RISCV_APLIC)		+= irq-riscv-aplic-main.o irq-riscv-aplic-direct.o
+ obj-$(CONFIG_RISCV_APLIC_MSI)		+= irq-riscv-aplic-msi.o
+ obj-$(CONFIG_RISCV_IMSIC)		+= irq-riscv-imsic-state.o irq-riscv-imsic-early.o irq-riscv-imsic-platform.o
++obj-$(CONFIG_BAO1X_INTC)		+= irq-bao1x-intc.o irq-bao1x-irqarray.o
+ obj-$(CONFIG_SIFIVE_PLIC)		+= irq-sifive-plic.o
+ obj-$(CONFIG_STARFIVE_JH8100_INTC)	+= irq-starfive-jh8100-intc.o
+ obj-$(CONFIG_THEAD_C900_ACLINT_SSWI)	+= irq-thead-c900-aclint-sswi.o
+diff --git a/drivers/irqchip/irq-bao1x-intc.c b/drivers/irqchip/irq-bao1x-intc.c
+new file mode 100644
+index 000000000..5111bc43f
+--- /dev/null
++++ b/drivers/irqchip/irq-bao1x-intc.c
+@@ -0,0 +1,102 @@
++// SPDX-License-Identifier: GPL-2.0
++/*
++ * Baochip bao1x external interrupt array.
++ *
++ * The VexRiscv core in the bao1x has no PLIC; instead, a 32-line external
++ * interrupt array (VexRiscv ExternalInterruptArrayPlugin) feeds the hart's
++ * supervisor external interrupt. Two custom CSRs control the supervisor
++ * view: 0x9C0 masks lines, 0xDC0 reads the pending (input AND mask) state.
++ * Lines are level-type: sources (IRQARRAY banks, timers) latch their event
++ * and hold the line until acked at the source.
++ *
++ * Co-developed-by: Claude <noreply@anthropic.com>
++ */
++
++#include <linux/cpu.h>
++#include <linux/irq.h>
++#include <linux/irqchip.h>
++#include <linux/irqchip/chained_irq.h>
++#include <linux/irqdomain.h>
++#include <linux/of.h>
++#include <linux/of_irq.h>
++
++#define CSR_BAO1X_SMASK		0x9c0
++#define CSR_BAO1X_SPENDING	0xdc0
++
++#define BAO1X_INTC_NR_IRQS	32
++
++static struct irq_domain *bao1x_intc_domain;
++
++static void bao1x_intc_mask(struct irq_data *d)
++{
++	csr_clear(CSR_BAO1X_SMASK, BIT(d->hwirq));
++}
++
++static void bao1x_intc_unmask(struct irq_data *d)
++{
++	csr_set(CSR_BAO1X_SMASK, BIT(d->hwirq));
++}
++
++static struct irq_chip bao1x_intc_chip = {
++	.name		= "bao1x-intc",
++	.irq_mask	= bao1x_intc_mask,
++	.irq_unmask	= bao1x_intc_unmask,
++};
++
++static int bao1x_intc_domain_map(struct irq_domain *d, unsigned int irq,
++				 irq_hw_number_t hwirq)
++{
++	irq_set_chip_and_handler(irq, &bao1x_intc_chip, handle_level_irq);
++	irq_set_chip_data(irq, NULL);
++	irq_set_noprobe(irq);
++	return 0;
++}
++
++static const struct irq_domain_ops bao1x_intc_domain_ops = {
++	.map	= bao1x_intc_domain_map,
++	.xlate	= irq_domain_xlate_onecell,
++};
++
++static void bao1x_intc_handle(struct irq_desc *desc)
++{
++	struct irq_chip *chip = irq_desc_get_chip(desc);
++	unsigned long pending;
++	unsigned int hwirq;
++
++	chained_irq_enter(chip, desc);
++
++	pending = csr_read(CSR_BAO1X_SPENDING);
++	for_each_set_bit(hwirq, &pending, BAO1X_INTC_NR_IRQS)
++		generic_handle_domain_irq(bao1x_intc_domain, hwirq);
++
++	chained_irq_exit(chip, desc);
++}
++
++static int __init bao1x_intc_init(struct device_node *node,
++				  struct device_node *parent)
++{
++	int parent_irq;
++
++	/* Start fully masked; lines open as their handlers are installed. */
++	csr_write(CSR_BAO1X_SMASK, 0);
++
++	parent_irq = irq_of_parse_and_map(node, 0);
++	if (!parent_irq) {
++		pr_err("%pOF: failed to map parent interrupt\n", node);
++		return -ENODEV;
++	}
++
++	bao1x_intc_domain = irq_domain_add_linear(node, BAO1X_INTC_NR_IRQS,
++						  &bao1x_intc_domain_ops,
++						  NULL);
++	if (!bao1x_intc_domain)
++		return -ENOMEM;
++
++	irq_set_chained_handler(parent_irq, bao1x_intc_handle);
++
++	pr_info("%pOF: %d external interrupt lines via CSRs 0x9c0/0xdc0\n",
++		node, BAO1X_INTC_NR_IRQS);
++	return 0;
++}
++
++IRQCHIP_DECLARE(bao1x_intc, "baochip,bao1x-intc", bao1x_intc_init);
+diff --git a/drivers/irqchip/irq-bao1x-irqarray.c b/drivers/irqchip/irq-bao1x-irqarray.c
+new file mode 100644
+index 000000000..c72ff3904
+--- /dev/null
++++ b/drivers/irqchip/irq-bao1x-irqarray.c
+@@ -0,0 +1,152 @@
++// SPDX-License-Identifier: GPL-2.0
++/*
++ * Baochip bao1x IRQARRAY bank.
++ *
++ * LiteX EventManager-style aggregator: each of the 20 banks collects up
++ * to 16 event sources onto one line of the bao1x external interrupt
++ * array. Sources pulse; EV_PENDING latches them (write-1-to-clear) and
++ * EV_ENABLE gates the bank output, so children are edge-type here.
++ *
++ * Co-developed-by: Claude <noreply@anthropic.com>
++ */
++
++#include <linux/io.h>
++#include <linux/irq.h>
++#include <linux/irqchip.h>
++#include <linux/irqchip/chained_irq.h>
++#include <linux/irqdomain.h>
++#include <linux/of.h>
++#include <linux/of_address.h>
++#include <linux/of_irq.h>
++
++#define EV_SOFT		0x00
++#define EV_STATUS	0x0c
++#define EV_PENDING	0x10
++#define EV_ENABLE	0x14
++
++#define BANK_NR_IRQS	16
++
++struct bao1x_irqarray {
++	void __iomem		*base;
++	struct irq_domain	*domain;
++	/* Serializes RMW on EV_ENABLE against the chained handler. */
++	raw_spinlock_t		lock;
++};
++
++static void bao1x_irqarray_ack(struct irq_data *d)
++{
++	struct bao1x_irqarray *bank = irq_data_get_irq_chip_data(d);
++
++	writel_relaxed(BIT(d->hwirq), bank->base + EV_PENDING);
++}
++
++static void bao1x_irqarray_mask(struct irq_data *d)
++{
++	struct bao1x_irqarray *bank = irq_data_get_irq_chip_data(d);
++	unsigned long flags;
++	u32 val;
++
++	raw_spin_lock_irqsave(&bank->lock, flags);
++	val = readl_relaxed(bank->base + EV_ENABLE);
++	writel_relaxed(val & ~BIT(d->hwirq), bank->base + EV_ENABLE);
++	raw_spin_unlock_irqrestore(&bank->lock, flags);
++}
++
++static void bao1x_irqarray_unmask(struct irq_data *d)
++{
++	struct bao1x_irqarray *bank = irq_data_get_irq_chip_data(d);
++	unsigned long flags;
++	u32 val;
++
++	raw_spin_lock_irqsave(&bank->lock, flags);
++	val = readl_relaxed(bank->base + EV_ENABLE);
++	writel_relaxed(val | BIT(d->hwirq), bank->base + EV_ENABLE);
++	raw_spin_unlock_irqrestore(&bank->lock, flags);
++}
++
++static struct irq_chip bao1x_irqarray_chip = {
++	.name		= "bao1x-irqarray",
++	.irq_ack	= bao1x_irqarray_ack,
++	.irq_mask	= bao1x_irqarray_mask,
++	.irq_unmask	= bao1x_irqarray_unmask,
++};
++
++static int bao1x_irqarray_domain_map(struct irq_domain *d, unsigned int irq,
++				     irq_hw_number_t hwirq)
++{
++	irq_set_chip_and_handler(irq, &bao1x_irqarray_chip, handle_edge_irq);
++	irq_set_chip_data(irq, d->host_data);
++	irq_set_noprobe(irq);
++	return 0;
++}
++
++static const struct irq_domain_ops bao1x_irqarray_domain_ops = {
++	.map	= bao1x_irqarray_domain_map,
++	.xlate	= irq_domain_xlate_onecell,
++};
++
++static void bao1x_irqarray_handle(struct irq_desc *desc)
++{
++	struct bao1x_irqarray *bank = irq_desc_get_handler_data(desc);
++	struct irq_chip *chip = irq_desc_get_chip(desc);
++	unsigned long pending;
++	unsigned int hwirq;
++
++	chained_irq_enter(chip, desc);
++
++	pending = readl_relaxed(bank->base + EV_PENDING) &
++		  readl_relaxed(bank->base + EV_ENABLE);
++	for_each_set_bit(hwirq, &pending, BANK_NR_IRQS)
++		generic_handle_domain_irq(bank->domain, hwirq);
++
++	chained_irq_exit(chip, desc);
++}
++
++static int __init bao1x_irqarray_init(struct device_node *node,
++				      struct device_node *parent)
++{
++	struct bao1x_irqarray *bank;
++	int parent_irq;
++	int ret;
++
++	bank = kzalloc(sizeof(*bank), GFP_KERNEL);
++	if (!bank)
++		return -ENOMEM;
++	raw_spin_lock_init(&bank->lock);
++
++	bank->base = of_iomap(node, 0);
++	if (!bank->base) {
++		ret = -ENXIO;
++		goto err_free;
++	}
++
++	/* All sources off and clear until requested. */
++	writel_relaxed(0, bank->base + EV_ENABLE);
++	writel_relaxed(0xffff, bank->base + EV_PENDING);
++
++	parent_irq = irq_of_parse_and_map(node, 0);
++	if (!parent_irq) {
++		ret = -ENODEV;
++		goto err_unmap;
++	}
++
++	bank->domain = irq_domain_add_linear(node, BANK_NR_IRQS,
++					     &bao1x_irqarray_domain_ops, bank);
++	if (!bank->domain) {
++		ret = -ENOMEM;
++		goto err_unmap;
++	}
++
++	irq_set_chained_handler_and_data(parent_irq, bao1x_irqarray_handle,
++					 bank);
++	return 0;
++
++err_unmap:
++	iounmap(bank->base);
++err_free:
++	kfree(bank);
++	pr_err("%pOF: init failed (%d)\n", node, ret);
++	return ret;
++}
++
++IRQCHIP_DECLARE(bao1x_irqarray, "baochip,bao1x-irqarray", bao1x_irqarray_init);
+-- 
+2.55.0
+

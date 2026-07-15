@@ -1,0 +1,612 @@
+From 070213be775f94ed3088762ae4a13d439f2c1b34 Mon Sep 17 00:00:00 2001
+From: Claude <noreply@anthropic.com>
+Date: Wed, 15 Jul 2026 10:52:58 +0200
+Subject: [PATCH 10/10] serial: add Baochip bao1x uDMA UART driver and DUART
+ earlycon
+
+The bao1x console UART is a PULP-style uDMA UART with an asymmetric
+programming model: the transmitter is DMA-only and can fetch solely
+from the dedicated IFRAM banks, while the receiver has a PIO path
+(VALID/DATA register pair) that raises an "rx char" event per byte.
+The driver takes a private IFRAM slice via a second reg entry and
+bounces transmit data through it chunk-wise, driven by the "tx done"
+event; receive is interrupt-driven PIO. Both events arrive through the
+bao1x IRQARRAY bank 5. Console writes transmit synchronously.
+
+The SoC also has a trivial four-register TX-only debug UART (DUART)
+that needs no clock or pin configuration; it is exposed as earlycon
+only ("earlycon" with stdout-path or earlycon=bao1x_duart) since it
+has no receiver.
+
+Co-developed-by: Claude <noreply@anthropic.com>
+---
+ drivers/tty/serial/Kconfig       |  19 ++
+ drivers/tty/serial/Makefile      |   2 +
+ drivers/tty/serial/bao1x_duart.c |  52 ++++
+ drivers/tty/serial/bao1x_uart.c  | 457 +++++++++++++++++++++++++++++++
+ include/uapi/linux/serial_core.h |   3 +
+ 5 files changed, 533 insertions(+)
+ create mode 100644 drivers/tty/serial/bao1x_duart.c
+ create mode 100644 drivers/tty/serial/bao1x_uart.c
+
+diff --git a/drivers/tty/serial/Kconfig b/drivers/tty/serial/Kconfig
+index 976dae3bb..0cbf50e32 100644
+--- a/drivers/tty/serial/Kconfig
++++ b/drivers/tty/serial/Kconfig
+@@ -1493,6 +1493,25 @@ config SERIAL_MILBEAUT_USIO_CONSOLE
+ 	  receives all kernel messages and warnings and which allows logins in
+ 	  single user mode).
+ 
++config SERIAL_BAO1X
++	bool "Baochip bao1x uDMA UART support"
++	depends on HAS_IOMEM
++	depends on OF
++	select SERIAL_CORE
++	help
++	  Serial driver for the PULP-style uDMA UARTs on the Baochip bao1x
++	  SoC (DMA-only transmitter bounced through IFRAM, PIO receiver).
++
++config SERIAL_BAO1X_CONSOLE
++	bool "Console on bao1x uDMA UART"
++	depends on SERIAL_BAO1X=y
++	select SERIAL_CORE_CONSOLE
++	select SERIAL_EARLYCON
++	default y
++	help
++	  Console support for the bao1x uDMA UART, plus an earlycon on the
++	  TX-only DUART debug UART ("earlycon=bao1x_duart").
++
+ config SERIAL_LITEUART
+ 	tristate "LiteUART serial port support"
+ 	depends on HAS_IOMEM
+diff --git a/drivers/tty/serial/Makefile b/drivers/tty/serial/Makefile
+index 6ff74f0a9..7738fc06e 100644
+--- a/drivers/tty/serial/Makefile
++++ b/drivers/tty/serial/Makefile
+@@ -47,6 +47,8 @@ obj-$(CONFIG_SERIAL_IMX_EARLYCON)	+= imx_earlycon.o
+ obj-$(CONFIG_SERIAL_IP22_ZILOG)		+= ip22zilog.o
+ obj-$(CONFIG_SERIAL_JSM)		+= jsm/
+ obj-$(CONFIG_SERIAL_LANTIQ)		+= lantiq.o
++obj-$(CONFIG_SERIAL_BAO1X)		+= bao1x_uart.o
++obj-$(CONFIG_SERIAL_BAO1X_CONSOLE)	+= bao1x_duart.o
+ obj-$(CONFIG_SERIAL_LITEUART)		+= liteuart.o
+ obj-$(CONFIG_SERIAL_HS_LPC32XX)		+= lpc32xx_hs.o
+ obj-$(CONFIG_SERIAL_MAX3100)		+= max3100.o
+diff --git a/drivers/tty/serial/bao1x_duart.c b/drivers/tty/serial/bao1x_duart.c
+new file mode 100644
+index 000000000..6b175d9ec
+--- /dev/null
++++ b/drivers/tty/serial/bao1x_duart.c
+@@ -0,0 +1,52 @@
++// SPDX-License-Identifier: GPL-2.0
++/*
++ * Baochip bao1x DUART earlycon.
++ *
++ * The DUART is a four-register, TX-only debug UART that works with no
++ * clock or pin setup at all, which makes it the earliest possible sign
++ * of life on this SoC: earlycon output needs nothing but these MMIO
++ * writes. There is deliberately no full uart driver: the device has no
++ * receiver, the real console is the uDMA UART.
++ *
++ * Co-developed-by: Claude <noreply@anthropic.com>
++ */
++
++#include <linux/console.h>
++#include <linux/io.h>
++#include <linux/serial_core.h>
++
++#define DUART_TXD	0x00
++#define DUART_CR	0x04
++#define DUART_SR	0x08
++
++#define DUART_CR_EN	BIT(0)
++#define DUART_SR_BUSY	BIT(0)
++
++static void bao1x_duart_putc(struct uart_port *port, unsigned char ch)
++{
++	while (readl_relaxed(port->membase + DUART_SR) & DUART_SR_BUSY)
++		cpu_relax();
++	writel_relaxed(ch, port->membase + DUART_TXD);
++}
++
++static void bao1x_duart_early_write(struct console *con, const char *s,
++				    unsigned int count)
++{
++	struct earlycon_device *device = con->data;
++
++	uart_console_write(&device->port, s, count, bao1x_duart_putc);
++}
++
++static int __init bao1x_duart_early_setup(struct earlycon_device *device,
++					  const char *options)
++{
++	if (!device->port.membase)
++		return -ENODEV;
++
++	writel_relaxed(DUART_CR_EN, device->port.membase + DUART_CR);
++	device->con->write = bao1x_duart_early_write;
++	return 0;
++}
++
++OF_EARLYCON_DECLARE(bao1x_duart, "baochip,bao1x-duart",
++		    bao1x_duart_early_setup);
+diff --git a/drivers/tty/serial/bao1x_uart.c b/drivers/tty/serial/bao1x_uart.c
+new file mode 100644
+index 000000000..44afca497
+--- /dev/null
++++ b/drivers/tty/serial/bao1x_uart.c
+@@ -0,0 +1,457 @@
++// SPDX-License-Identifier: GPL-2.0
++/*
++ * Baochip bao1x uDMA UART driver (PULP udma_uart).
++ *
++ * The transmitter is DMA-only and can only fetch from IFRAM, so the DT
++ * hands every port a private IFRAM slice ("txram") used as a bounce
++ * buffer; a transfer is TX_SADDR/TX_SIZE/TX_CFG.EN, completion is the
++ * "tx done" event (TX_SIZE reads back as bytes left). The receiver is
++ * used in PIO mode: with the rx interrupt enabled every received byte
++ * lands in the VALID/DATA register pair and pulses an "rx char" event.
++ * Events arrive through the bao1x IRQARRAY5 bank.
++ *
++ * Co-developed-by: Claude <noreply@anthropic.com>
++ */
++
++#include <linux/console.h>
++#include <linux/interrupt.h>
++#include <linux/io.h>
++#include <linux/kfifo.h>
++#include <linux/module.h>
++#include <linux/of.h>
++#include <linux/platform_device.h>
++#include <linux/serial.h>
++#include <linux/serial_core.h>
++#include <linux/tty_flip.h>
++
++#define BAO1X_UART_NR		4
++
++#define REG_TX_SADDR		0x10
++#define REG_TX_SIZE		0x14
++#define REG_TX_CFG		0x18
++#define REG_STATUS		0x20
++#define REG_SETUP		0x24
++#define REG_IRQ_EN		0x2c
++#define REG_VALID		0x30
++#define REG_DATA		0x34
++
++#define SETUP_PARITY_EN		BIT(0)
++#define SETUP_BITS_8		(3 << 1)
++#define SETUP_STOP_2		BIT(3)
++#define SETUP_TX_EN		BIT(8)
++#define SETUP_RX_EN		BIT(9)
++#define SETUP_DIV(d)		((u32)(d) << 16)
++
++#define CFG_EN			BIT(4)
++
++#define STATUS_TX_BUSY		BIT(0)
++
++#define IRQ_EN_RX		BIT(0)
++
++struct bao1x_uart_port {
++	struct uart_port	port;
++	void __iomem		*txram;
++	phys_addr_t		txram_phys;
++	u32			txram_size;
++	u32			tx_inflight;
++	int			rx_irq;
++	int			tx_irq;
++};
++
++#define to_bao1x_port(p) container_of(p, struct bao1x_uart_port, port)
++
++static struct bao1x_uart_port *bao1x_ports[BAO1X_UART_NR];
++
++static struct uart_driver bao1x_uart_driver;
++
++static void bao1x_uart_wait_tx_idle(struct uart_port *port)
++{
++	while (readl_relaxed(port->membase + REG_TX_SIZE) ||
++	       (readl_relaxed(port->membase + REG_STATUS) & STATUS_TX_BUSY))
++		cpu_relax();
++}
++
++/* Start the next DMA chunk from the xmit kfifo. Port lock held. */
++static void bao1x_uart_kick_tx(struct bao1x_uart_port *uart)
++{
++	struct uart_port *port = &uart->port;
++	struct tty_port *tport = &port->state->port;
++	unsigned char *tail;
++	unsigned int count;
++
++	if (uart->tx_inflight)
++		return;
++	if (uart_tx_stopped(port))
++		return;
++
++	count = kfifo_out_linear_ptr(&tport->xmit_fifo, &tail,
++				     uart->txram_size);
++	if (!count)
++		return;
++
++	memcpy_toio(uart->txram, tail, count);
++	uart_xmit_advance(port, count);
++
++	writel_relaxed(uart->txram_phys, port->membase + REG_TX_SADDR);
++	writel_relaxed(count, port->membase + REG_TX_SIZE);
++	writel_relaxed(CFG_EN, port->membase + REG_TX_CFG);
++	uart->tx_inflight = count;
++}
++
++static irqreturn_t bao1x_uart_tx_irq(int irq, void *data)
++{
++	struct bao1x_uart_port *uart = data;
++	struct uart_port *port = &uart->port;
++	struct tty_port *tport = &port->state->port;
++	unsigned long flags;
++
++	uart_port_lock_irqsave(port, &flags);
++	uart->tx_inflight = 0;
++	bao1x_uart_kick_tx(uart);
++	if (kfifo_len(&tport->xmit_fifo) < WAKEUP_CHARS)
++		uart_write_wakeup(port);
++	uart_port_unlock_irqrestore(port, flags);
++
++	return IRQ_HANDLED;
++}
++
++static irqreturn_t bao1x_uart_rx_irq(int irq, void *data)
++{
++	struct bao1x_uart_port *uart = data;
++	struct uart_port *port = &uart->port;
++	unsigned long flags;
++	u8 ch;
++
++	uart_port_lock_irqsave(port, &flags);
++	while (readl_relaxed(port->membase + REG_VALID) & 1) {
++		ch = readl_relaxed(port->membase + REG_DATA);
++		port->icount.rx++;
++		if (!uart_handle_sysrq_char(port, ch))
++			uart_insert_char(port, 0, 0, ch, TTY_NORMAL);
++	}
++	uart_port_unlock_irqrestore(port, flags);
++	tty_flip_buffer_push(&port->state->port);
++
++	return IRQ_HANDLED;
++}
++
++static unsigned int bao1x_uart_tx_empty(struct uart_port *port)
++{
++	struct bao1x_uart_port *uart = to_bao1x_port(port);
++
++	return uart->tx_inflight ? 0 : TIOCSER_TEMT;
++}
++
++static void bao1x_uart_start_tx(struct uart_port *port)
++{
++	bao1x_uart_kick_tx(to_bao1x_port(port));
++}
++
++static void bao1x_uart_stop_tx(struct uart_port *port)
++{
++	/* The in-flight chunk drains; nothing more is scheduled. */
++}
++
++static void bao1x_uart_stop_rx(struct uart_port *port)
++{
++	writel_relaxed(0, port->membase + REG_IRQ_EN);
++}
++
++static unsigned int bao1x_uart_get_mctrl(struct uart_port *port)
++{
++	return TIOCM_CTS | TIOCM_DSR | TIOCM_CAR;
++}
++
++static void bao1x_uart_set_mctrl(struct uart_port *port, unsigned int mctrl)
++{
++}
++
++static void bao1x_uart_break_ctl(struct uart_port *port, int break_state)
++{
++}
++
++static int bao1x_uart_startup(struct uart_port *port)
++{
++	struct bao1x_uart_port *uart = to_bao1x_port(port);
++	int ret;
++
++	ret = request_irq(uart->rx_irq, bao1x_uart_rx_irq, 0,
++			  "bao1x-uart-rx", uart);
++	if (ret)
++		return ret;
++	ret = request_irq(uart->tx_irq, bao1x_uart_tx_irq, 0,
++			  "bao1x-uart-tx", uart);
++	if (ret) {
++		free_irq(uart->rx_irq, uart);
++		return ret;
++	}
++
++	writel_relaxed(IRQ_EN_RX, port->membase + REG_IRQ_EN);
++	return 0;
++}
++
++static void bao1x_uart_shutdown(struct uart_port *port)
++{
++	struct bao1x_uart_port *uart = to_bao1x_port(port);
++
++	writel_relaxed(0, port->membase + REG_IRQ_EN);
++	free_irq(uart->rx_irq, uart);
++	free_irq(uart->tx_irq, uart);
++}
++
++static void bao1x_uart_set_termios(struct uart_port *port,
++				   struct ktermios *termios,
++				   const struct ktermios *old)
++{
++	unsigned int baud;
++	unsigned long flags;
++	u32 setup;
++
++	baud = uart_get_baud_rate(port, termios, old, 9600, 4000000);
++
++	setup = SETUP_DIV(DIV_ROUND_CLOSEST(port->uartclk, baud)) |
++		SETUP_RX_EN | SETUP_TX_EN | SETUP_BITS_8;
++	if (termios->c_cflag & PARENB)
++		setup |= SETUP_PARITY_EN;
++	if (termios->c_cflag & CSTOPB)
++		setup |= SETUP_STOP_2;
++
++	uart_port_lock_irqsave(port, &flags);
++	uart_update_timeout(port, termios->c_cflag, baud);
++	bao1x_uart_wait_tx_idle(port);
++	writel_relaxed(setup, port->membase + REG_SETUP);
++	uart_port_unlock_irqrestore(port, flags);
++}
++
++static const char *bao1x_uart_type(struct uart_port *port)
++{
++	return port->type == PORT_BAO1X ? "bao1x-udma-uart" : NULL;
++}
++
++static void bao1x_uart_config_port(struct uart_port *port, int flags)
++{
++	if (flags & UART_CONFIG_TYPE)
++		port->type = PORT_BAO1X;
++}
++
++static int bao1x_uart_verify_port(struct uart_port *port,
++				  struct serial_struct *ser)
++{
++	return (ser->type == PORT_UNKNOWN || ser->type == PORT_BAO1X) ?
++		0 : -EINVAL;
++}
++
++static const struct uart_ops bao1x_uart_ops = {
++	.tx_empty	= bao1x_uart_tx_empty,
++	.set_mctrl	= bao1x_uart_set_mctrl,
++	.get_mctrl	= bao1x_uart_get_mctrl,
++	.stop_tx	= bao1x_uart_stop_tx,
++	.start_tx	= bao1x_uart_start_tx,
++	.stop_rx	= bao1x_uart_stop_rx,
++	.break_ctl	= bao1x_uart_break_ctl,
++	.startup	= bao1x_uart_startup,
++	.shutdown	= bao1x_uart_shutdown,
++	.set_termios	= bao1x_uart_set_termios,
++	.type		= bao1x_uart_type,
++	.config_port	= bao1x_uart_config_port,
++	.verify_port	= bao1x_uart_verify_port,
++};
++
++#ifdef CONFIG_SERIAL_BAO1X_CONSOLE
++/*
++ * Console writes bypass the irq machinery: wait out any in-flight DMA,
++ * then transmit synchronously in txram-sized chunks.
++ */
++static void bao1x_uart_console_write(struct console *co, const char *s,
++				     unsigned int count)
++{
++	struct bao1x_uart_port *uart = bao1x_ports[co->index];
++	struct uart_port *port = &uart->port;
++	unsigned long flags;
++	int locked = 1;
++
++	if (oops_in_progress)
++		locked = uart_port_trylock_irqsave(port, &flags);
++	else
++		uart_port_lock_irqsave(port, &flags);
++
++	while (count) {
++		unsigned int chunk = min_t(unsigned int, count,
++					   uart->txram_size);
++
++		bao1x_uart_wait_tx_idle(port);
++		memcpy_toio(uart->txram, s, chunk);
++		writel_relaxed(uart->txram_phys, port->membase + REG_TX_SADDR);
++		writel_relaxed(chunk, port->membase + REG_TX_SIZE);
++		writel_relaxed(CFG_EN, port->membase + REG_TX_CFG);
++		s += chunk;
++		count -= chunk;
++	}
++	bao1x_uart_wait_tx_idle(port);
++
++	if (locked)
++		uart_port_unlock_irqrestore(port, flags);
++}
++
++static int bao1x_uart_console_setup(struct console *co, char *options)
++{
++	struct bao1x_uart_port *uart;
++	int baud = 1000000;
++	int bits = 8;
++	int parity = 'n';
++	int flow = 'n';
++
++	if (co->index < 0 || co->index >= BAO1X_UART_NR)
++		return -ENODEV;
++	uart = bao1x_ports[co->index];
++	if (!uart || !uart->port.membase)
++		return -ENODEV;
++
++	if (options)
++		uart_parse_options(options, &baud, &parity, &bits, &flow);
++
++	return uart_set_options(&uart->port, co, baud, parity, bits, flow);
++}
++
++static struct console bao1x_uart_console = {
++	.name		= "ttyBAO",
++	.write		= bao1x_uart_console_write,
++	.device		= uart_console_device,
++	.setup		= bao1x_uart_console_setup,
++	.flags		= CON_PRINTBUFFER,
++	.index		= -1,
++	.data		= &bao1x_uart_driver,
++};
++
++static int __init bao1x_uart_console_init(void)
++{
++	register_console(&bao1x_uart_console);
++	return 0;
++}
++console_initcall(bao1x_uart_console_init);
++
++#define BAO1X_UART_CONSOLE (&bao1x_uart_console)
++#else
++#define BAO1X_UART_CONSOLE NULL
++#endif /* CONFIG_SERIAL_BAO1X_CONSOLE */
++
++static struct uart_driver bao1x_uart_driver = {
++	.owner		= THIS_MODULE,
++	.driver_name	= "bao1x_uart",
++	.dev_name	= "ttyBAO",
++	.nr		= BAO1X_UART_NR,
++	.cons		= BAO1X_UART_CONSOLE,
++};
++
++static int bao1x_uart_probe(struct platform_device *pdev)
++{
++	struct device_node *np = pdev->dev.of_node;
++	struct bao1x_uart_port *uart;
++	struct uart_port *port;
++	struct resource *res;
++	u32 clk;
++	int id, ret;
++
++	uart = devm_kzalloc(&pdev->dev, sizeof(*uart), GFP_KERNEL);
++	if (!uart)
++		return -ENOMEM;
++	port = &uart->port;
++
++	id = of_alias_get_id(np, "serial");
++	if (id < 0)
++		id = 0;
++	if (id >= BAO1X_UART_NR || bao1x_ports[id])
++		return -EINVAL;
++
++	port->membase = devm_platform_get_and_ioremap_resource(pdev, 0, &res);
++	if (IS_ERR(port->membase))
++		return PTR_ERR(port->membase);
++	port->mapbase = res->start;
++
++	res = platform_get_resource(pdev, IORESOURCE_MEM, 1);
++	if (!res) {
++		dev_err(&pdev->dev, "missing txram (IFRAM slice)\n");
++		return -ENODEV;
++	}
++	uart->txram = devm_ioremap_resource(&pdev->dev, res);
++	if (IS_ERR(uart->txram))
++		return PTR_ERR(uart->txram);
++	uart->txram_phys = res->start;
++	uart->txram_size = resource_size(res);
++
++	uart->rx_irq = platform_get_irq_byname(pdev, "rx");
++	uart->tx_irq = platform_get_irq_byname(pdev, "tx");
++	if (uart->rx_irq < 0 || uart->tx_irq < 0)
++		return -ENODEV;
++
++	if (of_property_read_u32(np, "clock-frequency", &clk)) {
++		dev_err(&pdev->dev, "missing clock-frequency\n");
++		return -EINVAL;
++	}
++
++	port->dev = &pdev->dev;
++	port->iotype = UPIO_MEM;
++	port->flags = UPF_BOOT_AUTOCONF;
++	port->ops = &bao1x_uart_ops;
++	port->fifosize = uart->txram_size;
++	port->uartclk = clk;
++	port->type = PORT_BAO1X;
++	port->line = id;
++	spin_lock_init(&port->lock);
++
++	bao1x_ports[id] = uart;
++	platform_set_drvdata(pdev, uart);
++
++	ret = uart_add_one_port(&bao1x_uart_driver, port);
++	if (ret)
++		bao1x_ports[id] = NULL;
++	return ret;
++}
++
++static void bao1x_uart_remove(struct platform_device *pdev)
++{
++	struct bao1x_uart_port *uart = platform_get_drvdata(pdev);
++
++	uart_remove_one_port(&bao1x_uart_driver, &uart->port);
++	bao1x_ports[uart->port.line] = NULL;
++}
++
++static const struct of_device_id bao1x_uart_of_match[] = {
++	{ .compatible = "baochip,bao1x-udma-uart" },
++	{ }
++};
++MODULE_DEVICE_TABLE(of, bao1x_uart_of_match);
++
++static struct platform_driver bao1x_uart_platform_driver = {
++	.probe = bao1x_uart_probe,
++	.remove = bao1x_uart_remove,
++	.driver = {
++		.name = "bao1x_uart",
++		.of_match_table = bao1x_uart_of_match,
++	},
++};
++
++static int __init bao1x_uart_init(void)
++{
++	int ret;
++
++	ret = uart_register_driver(&bao1x_uart_driver);
++	if (ret)
++		return ret;
++	ret = platform_driver_register(&bao1x_uart_platform_driver);
++	if (ret)
++		uart_unregister_driver(&bao1x_uart_driver);
++	return ret;
++}
++
++static void __exit bao1x_uart_exit(void)
++{
++	platform_driver_unregister(&bao1x_uart_platform_driver);
++	uart_unregister_driver(&bao1x_uart_driver);
++}
++
++module_init(bao1x_uart_init);
++module_exit(bao1x_uart_exit);
++
++MODULE_DESCRIPTION("Baochip bao1x uDMA UART serial driver");
++MODULE_LICENSE("GPL");
+diff --git a/include/uapi/linux/serial_core.h b/include/uapi/linux/serial_core.h
+index 9c007a106..2fda2675e 100644
+--- a/include/uapi/linux/serial_core.h
++++ b/include/uapi/linux/serial_core.h
+@@ -231,6 +231,9 @@
+ /* Sunplus UART */
+ #define PORT_SUNPLUS	123
+ 
++/* Baochip bao1x uDMA UART */
++#define PORT_BAO1X	124
++
+ /* Generic type identifier for ports which type is not important to userspace. */
+ #define PORT_GENERIC	(-1)
+ 
+-- 
+2.55.0
+

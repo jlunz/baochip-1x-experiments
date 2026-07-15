@@ -13,8 +13,15 @@
 / {
 	model = "Baochip bao1x (Renode)";
 
+	aliases {
+		serial0 = &uart2;
+	};
+
 	chosen {
-		bootargs = "earlycon=sbi console=hvc0 root=mtd:rootfs rootfstype=cramfs ro";
+		/* Bare "earlycon" resolves via stdout-path to the DUART;
+		 * the real console is the uDMA UART2 driver. */
+		bootargs = "earlycon console=ttyBAO0 root=mtd:rootfs rootfstype=cramfs ro";
+		stdout-path = &duart;
 	};
 
 	cpus {
@@ -26,4 +33,9 @@
 		/* 2MiB SRAM minus the top 16KiB (bao1x-sbi workspace). */
 		reg = <0x61000000 0x1fc000>;
 	};
+};
+
+&uart2 {
+	/* Renode Bao1xUdmaUart model clock (silicon perclk differs). */
+	clock-frequency = <100000000>;
 };

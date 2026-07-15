@@ -1,8 +1,8 @@
 From 4df35e14e2417920467130ecb67aa76baf88627b Mon Sep 17 00:00:00 2001
 From: Claude <noreply@anthropic.com>
 Date: Tue, 14 Jul 2026 19:39:34 +0200
-Subject: [PATCH 6/8] riscv: allow the XIP kernel entry at an offset inside the
- flash window
+Subject: [PATCH 06/10] riscv: allow the XIP kernel entry at an offset inside
+ the flash window
 
 XIP_PHYS_ADDR must remain PMD-aligned so the kernel text can be
 superpage-mapped, but some parts place an immutable boot ROM at the
