@@ -14,3 +14,6 @@ build/
 *.swp
 .vscode/
 .idea/
+
+# Pinned tool installs (setup/install-tools.sh)
+tools/renode/

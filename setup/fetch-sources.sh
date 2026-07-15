@@ -16,10 +16,12 @@ clone() { # url dir [extra git-clone args...]
     fi
 }
 
-# Mainline kernel. Blob-less partial clone: full history for tag archaeology
-# (finding the last-good XIP tag) without the multi-GB blob download.
+# Mainline kernel, shallow at the phase 1-4 base tag (v6.14 = last release
+# with working RISC-V XIP; see docs/04-bringup-log.md). A full or blobless
+# clone is not affordable on this host (git.kernel.org ignored the blob
+# filter and served 5.4 GiB). History archaeology is done via web/lore.
 clone https://git.kernel.org/pub/scm/linux/kernel/git/torvalds/linux.git linux \
-    --filter=blob:none
+    --depth 1 --branch v6.14
 
 # Buildroot (rootfs + rv32 musl toolchain). Track latest LTS branch.
 clone https://gitlab.com/buildroot.org/buildroot.git buildroot --depth 1
