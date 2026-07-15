@@ -27,3 +27,17 @@ Linux Should Boot To Shell
     # Timer sanity: sleep must return (clockevent -> TIMER0 -> STIP path).
     Write Line To Uart       sleep 1 && echo TIMER_OK      testerId=${uart2}
     Wait For Line On Uart    TIMER_OK                      timeout=30   testerId=${uart2}
+    # GPIO out: drive PC0 (line 32) high; PC bank OUT and OE bits must set.
+    Write Line To Uart       gpio-tool set 32 1            testerId=${uart2}
+    Wait For Line On Uart    line 32 <= 1                  timeout=30   testerId=${uart2}
+    ${out}=                  Execute Command    sysbus ReadDoubleWord 0x5012F138
+    Should Contain           ${out}             0x00000001
+    ${oe}=                   Execute Command    sysbus ReadDoubleWord 0x5012F150
+    Should Contain           ${oe}              0x00000001
+    # GPIO in: inject PC1 (line 33) high from the platform, read it back.
+    Execute Command          sysbus.iox OnGPIO 33 true
+    Write Line To Uart       gpio-tool get 33              testerId=${uart2}
+    Wait For Line On Uart    line 33 = 1                   timeout=30   testerId=${uart2}
+    Execute Command          sysbus.iox OnGPIO 33 false
+    Write Line To Uart       gpio-tool get 33              testerId=${uart2}
+    Wait For Line On Uart    line 33 = 0                   timeout=30   testerId=${uart2}

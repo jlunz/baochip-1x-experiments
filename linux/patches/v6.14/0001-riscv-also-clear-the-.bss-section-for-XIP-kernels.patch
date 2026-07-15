@@ -1,7 +1,7 @@
 From d50a7888d92c418ffc4e856fd7beaf67f2bf6094 Mon Sep 17 00:00:00 2001
 From: Claude <noreply@anthropic.com>
 Date: Tue, 14 Jul 2026 19:21:56 +0200
-Subject: [PATCH 01/12] riscv: also clear the .bss section for XIP kernels
+Subject: [PATCH 01/15] riscv: also clear the .bss section for XIP kernels
 
 The .bss clearing loop in _start_kernel is compiled out for
 CONFIG_XIP_KERNEL, but nothing else zeroes .bss on the XIP boot path:

@@ -1,0 +1,62 @@
+From 98e2a14e2c0850c3aa3f5d3e396b4b7d8760c742 Mon Sep 17 00:00:00 2001
+From: Claude <noreply@anthropic.com>
+Date: Wed, 15 Jul 2026 11:32:32 +0200
+Subject: [PATCH 13/15] gpiolib: cdev: use kvzalloc for struct
+ gpio_chardev_data
+
+struct gpio_chardev_data embeds a 32-entry kfifo of struct
+gpio_v2_line_info_changed, which makes it larger than two pages. Opening
+/dev/gpiochipN therefore needs an order-2 kmalloc, and on small-memory
+systems that allocation can fail from fragmentation alone. Observed on a
+riscv32 machine with 2MiB of RAM: 632kB free, largest free block 8kB,
+and the first open() of the chardev fails with ENOMEM (and triggers an
+allocation-failure splat) while the system is otherwise healthy.
+
+Nothing about this structure needs physical contiguity - the kfifo is
+only consumed through kfifo_in/kfifo_out on the same mapping - so fall
+back to vmalloc when the contiguous allocation is not available.
+
+Co-developed-by: Claude <noreply@anthropic.com>
+---
+ drivers/gpio/gpiolib-cdev.c | 11 ++++++++---
+ 1 file changed, 8 insertions(+), 3 deletions(-)
+
+diff --git a/drivers/gpio/gpiolib-cdev.c b/drivers/gpio/gpiolib-cdev.c
+index 107d75558..0ae570a8c 100644
+--- a/drivers/gpio/gpiolib-cdev.c
++++ b/drivers/gpio/gpiolib-cdev.c
+@@ -2716,7 +2716,12 @@ static int gpio_chrdev_open(struct inode *inode, struct file *file)
+ 	if (!rcu_access_pointer(gdev->chip))
+ 		return -ENODEV;
+ 
+-	cdev = kzalloc(sizeof(*cdev), GFP_KERNEL);
++	/*
++	 * The embedded lineinfo-changed kfifo makes this struct span multiple
++	 * pages; on small fragmented systems an order-2 kmalloc can fail even
++	 * with plenty of free memory, so allow the vmalloc fallback.
++	 */
++	cdev = kvzalloc(sizeof(*cdev), GFP_KERNEL);
+ 	if (!cdev)
+ 		return -ENODEV;
+ 
+@@ -2762,7 +2767,7 @@ static int gpio_chrdev_open(struct inode *inode, struct file *file)
+ 	gpio_device_put(gdev);
+ 	bitmap_free(cdev->watched_lines);
+ out_free_cdev:
+-	kfree(cdev);
++	kvfree(cdev);
+ 	return ret;
+ }
+ 
+@@ -2786,7 +2791,7 @@ static int gpio_chrdev_release(struct inode *inode, struct file *file)
+ 					      &cdev->lineinfo_changed_nb);
+ 	bitmap_free(cdev->watched_lines);
+ 	gpio_device_put(gdev);
+-	kfree(cdev);
++	kvfree(cdev);
+ 
+ 	return 0;
+ }
+-- 
+2.55.0
+

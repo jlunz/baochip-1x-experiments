@@ -48,6 +48,11 @@ clint: IRQControllers.CoreLevelInterruptor @ sysbus 0xF0010000
 // --- Console -------------------------------------------------------------------
 duart: UART.Baochip.Bao1xDuart @ sysbus 0x40042000
 
+// --- IOX pin mux / GPIO -----------------------------------------------------------
+// GPIO numbering: port*16 + pin (PA0=0 .. PF15=95). Inputs are driven from
+// the monitor/robot via e.g. `iox OnGPIO 33 true` (PC1).
+iox: Miscellaneous.Baochip.Bao1xIox @ sysbus 0x5012F000
+
 // --- uDMA subsystem --------------------------------------------------------------
 // Global clock-gate/event/reset registers (state-holding stub).
 udmactrl: Miscellaneous.Baochip.Bao1xUdmaCtrl @ sysbus 0x50100000

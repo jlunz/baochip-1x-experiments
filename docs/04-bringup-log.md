@@ -205,3 +205,20 @@ Silicon-only checks resolved from RTL: VexRiscv D$ is write-through (no
 cache maintenance. Shim banner now mirrored to UART2 (DUART pad may be
 unrouted). Flashing steps + triage matrix: docs/05-hardware-bringup.md.
 Board work now needs the user (flash + irreversible DEVELOPER_MODE burn).
+
+## 2026-07-15 (cont.) — Phase 5a: IOX pinctrl/GPIO GREEN in Renode
+
+Kernel patches 0013-0015: `gpiolib: cdev: use kvzalloc` (opening
+/dev/gpiochipN needs an order-2 alloc for the embedded 32-entry lineinfo
+kfifo — failed from fragmentation alone on the 2MiB system, OOM-killed the
+shell; vmalloc fallback fixes it), dt-binding + `pinctrl-bao1x` (96 pins as
+single-pin groups "PA0".."PF15", functions gpio/af1/af2/af3, generic
+function/groups DT parsing, gpio-ranges auto-mux; pull-up/schmitt/slew
+pinconf; the 8 IOX interrupt slots deferred). Renode: Bao1xIox model
+(AFSEL/OUT/OE/PU/IN + pad readback (OE&OUT)|(~OE&ext); inputs injected with
+`iox OnGPIO <n> <bool>`; numbering port*16+pin). Rootfs gains `gpio-tool`
+(cdev v2 ioctls; busybox has none, no sysfs) via buildroot post-build hook.
+linux.robot: drives PC0 out (register bits asserted), reads injected PC1
+both states. DT: iox node + uart2 pinctrl-0 (PB13/14 af1, same as boot1).
+Lesson (again): every /dev/gpiochip open costs >8KiB contiguous before the
+kvzalloc patch — on 2MiB systems watch every order>0 allocation.

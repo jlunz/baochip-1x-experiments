@@ -1,0 +1,390 @@
+From c59a4e53480c3e29864ea57b82279e8dc0b08f95 Mon Sep 17 00:00:00 2001
+From: Claude <noreply@anthropic.com>
+Date: Wed, 15 Jul 2026 11:36:07 +0200
+Subject: [PATCH 15/15] pinctrl: add Baochip bao1x IOX driver
+
+Pin multiplexing and GPIO for the bao1x IOX block: 96 pins in six
+ports, each with a 2-bit alternate-function field (0 = GPIO), pull-up,
+schmitt-trigger and slew-rate controls, all readable back through
+per-port OUT/OE/PU/IN registers.
+
+Every pin is registered as its own single-pin group so the generic
+"function"/"groups" device tree parsing needs no custom map code, and
+gpio-ranges routes gpiochip requests through gpio_request_enable to
+mux pins back to GPIO automatically. The eight shared IOX interrupt
+slots (each can watch one pin) are not yet exposed as a gpio irqchip.
+
+Co-developed-by: Claude <noreply@anthropic.com>
+---
+ drivers/pinctrl/Kconfig         |  13 ++
+ drivers/pinctrl/Makefile        |   1 +
+ drivers/pinctrl/pinctrl-bao1x.c | 321 ++++++++++++++++++++++++++++++++
+ 3 files changed, 335 insertions(+)
+ create mode 100644 drivers/pinctrl/pinctrl-bao1x.c
+
+diff --git a/drivers/pinctrl/Kconfig b/drivers/pinctrl/Kconfig
+index 95a8e2b9a..cb9bd0142 100644
+--- a/drivers/pinctrl/Kconfig
++++ b/drivers/pinctrl/Kconfig
+@@ -87,6 +87,19 @@ config PINCTRL_AS3722
+ 	  open drain configuration for the GPIO pins of AS3722 devices. It also
+ 	  supports the GPIO functionality through gpiolib.
+ 
++config PINCTRL_BAO1X
++	bool "Baochip bao1x IOX pinctrl and GPIO driver"
++	depends on OF
++	select PINMUX
++	select GENERIC_PINCONF
++	select GPIOLIB
++	help
++	  Pin multiplexing and GPIO support for the IOX block on the
++	  Baochip bao1x SoC: six 16-pin ports with a 2-bit alternate
++	  function selector, pull-up, schmitt-trigger and slew-rate
++	  control per pin. Every pin is exposed as its own pinctrl
++	  group, and all 96 pins form one gpiochip.
++
+ config PINCTRL_AT91
+ 	bool "AT91 pinctrl driver"
+ 	depends on OF
+diff --git a/drivers/pinctrl/Makefile b/drivers/pinctrl/Makefile
+index fba1c5662..ba5f5e2a8 100644
+--- a/drivers/pinctrl/Makefile
++++ b/drivers/pinctrl/Makefile
+@@ -13,6 +13,7 @@ obj-$(CONFIG_PINCTRL_AMD)	+= pinctrl-amd.o
+ obj-$(CONFIG_PINCTRL_APPLE_GPIO) += pinctrl-apple-gpio.o
+ obj-$(CONFIG_PINCTRL_ARTPEC6)	+= pinctrl-artpec6.o
+ obj-$(CONFIG_PINCTRL_AS3722)	+= pinctrl-as3722.o
++obj-$(CONFIG_PINCTRL_BAO1X)	+= pinctrl-bao1x.o
+ obj-$(CONFIG_PINCTRL_AT91)	+= pinctrl-at91.o
+ obj-$(CONFIG_PINCTRL_AT91PIO4)	+= pinctrl-at91-pio4.o
+ obj-$(CONFIG_PINCTRL_AW9523)	+= pinctrl-aw9523.o
+diff --git a/drivers/pinctrl/pinctrl-bao1x.c b/drivers/pinctrl/pinctrl-bao1x.c
+new file mode 100644
+index 000000000..7055a0a24
+--- /dev/null
++++ b/drivers/pinctrl/pinctrl-bao1x.c
+@@ -0,0 +1,321 @@
++// SPDX-License-Identifier: GPL-2.0
++/*
++ * Baochip bao1x IOX pinctrl + GPIO driver.
++ *
++ * Six 16-pin ports (PA..PF). Each pin has a 2-bit alternate-function
++ * selector (0 = GPIO), per-port output/output-enable/pull-up/input
++ * registers, and schmitt-trigger/slew configuration bits. Every pin is
++ * its own group, so the generic "function"/"groups" device tree parsing
++ * applies directly. The eight shared IOX interrupt slots are not yet
++ * supported.
++ *
++ * Co-developed-by: Claude <noreply@anthropic.com>
++ */
++
++#include <linux/gpio/driver.h>
++#include <linux/io.h>
++#include <linux/mod_devicetable.h>
++#include <linux/module.h>
++#include <linux/pinctrl/pinconf-generic.h>
++#include <linux/pinctrl/pinconf.h>
++#include <linux/pinctrl/pinctrl.h>
++#include <linux/pinctrl/pinmux.h>
++#include <linux/platform_device.h>
++#include <linux/seq_file.h>
++#include <linux/spinlock.h>
++
++#define IOX_NR_PORTS	6
++#define IOX_NR_PINS	(IOX_NR_PORTS * 16)
++
++#define REG_AFSEL(pin)	(0x000 + ((pin) / 16) * 8 + (((pin) % 16) / 8) * 4)
++#define AFSEL_SHIFT(pin) (((pin) % 8) * 2)
++#define REG_OUT(pin)	(0x130 + ((pin) / 16) * 4)
++#define REG_OE(pin)	(0x148 + ((pin) / 16) * 4)
++#define REG_PU(pin)	(0x160 + ((pin) / 16) * 4)
++#define REG_IN(pin)	(0x178 + ((pin) / 16) * 4)
++#define REG_SCHMITT(pin) (0x230 + ((pin) / 16) * 4)
++#define REG_SLEW(pin)	(0x248 + ((pin) / 16) * 4)
++#define PIN_BIT(pin)	BIT((pin) % 16)
++
++#define FUNC_GPIO	0
++
++struct bao1x_iox {
++	void __iomem		*base;
++	struct device		*dev;
++	struct pinctrl_dev	*pctl;
++	struct gpio_chip	gc;
++	raw_spinlock_t		lock;
++};
++
++/* "PA0".."PF15" with consecutive numbers; filled at probe. */
++static struct pinctrl_pin_desc bao1x_pins[IOX_NR_PINS];
++
++static const char * const bao1x_functions[] = {
++	"gpio", "af1", "af2", "af3",
++};
++
++/* Group name == pin name; filled from bao1x_pins at probe. */
++static const char *bao1x_group_names[IOX_NR_PINS];
++
++static u32 bao1x_rmw(struct bao1x_iox *iox, u32 reg, u32 clear, u32 set)
++{
++	unsigned long flags;
++	u32 val;
++
++	raw_spin_lock_irqsave(&iox->lock, flags);
++	val = readl_relaxed(iox->base + reg);
++	val = (val & ~clear) | set;
++	writel_relaxed(val, iox->base + reg);
++	raw_spin_unlock_irqrestore(&iox->lock, flags);
++	return val;
++}
++
++static void bao1x_set_af(struct bao1x_iox *iox, unsigned int pin, u32 af)
++{
++	bao1x_rmw(iox, REG_AFSEL(pin), 0x3 << AFSEL_SHIFT(pin),
++		  (af & 0x3) << AFSEL_SHIFT(pin));
++}
++
++/* --- pinctrl: one group per pin ---------------------------------------- */
++
++static int bao1x_get_groups_count(struct pinctrl_dev *pctldev)
++{
++	return IOX_NR_PINS;
++}
++
++static const char *bao1x_get_group_name(struct pinctrl_dev *pctldev,
++					unsigned int selector)
++{
++	return bao1x_pins[selector].name;
++}
++
++static int bao1x_get_group_pins(struct pinctrl_dev *pctldev,
++				unsigned int selector, const unsigned int **pins,
++				unsigned int *num_pins)
++{
++	*pins = &bao1x_pins[selector].number;
++	*num_pins = 1;
++	return 0;
++}
++
++static const struct pinctrl_ops bao1x_pctl_ops = {
++	.get_groups_count	= bao1x_get_groups_count,
++	.get_group_name		= bao1x_get_group_name,
++	.get_group_pins		= bao1x_get_group_pins,
++	.dt_node_to_map		= pinconf_generic_dt_node_to_map_group,
++	.dt_free_map		= pinconf_generic_dt_free_map,
++};
++
++/* --- pinmux ------------------------------------------------------------- */
++
++static int bao1x_get_functions_count(struct pinctrl_dev *pctldev)
++{
++	return ARRAY_SIZE(bao1x_functions);
++}
++
++static const char *bao1x_get_function_name(struct pinctrl_dev *pctldev,
++					   unsigned int selector)
++{
++	return bao1x_functions[selector];
++}
++
++static int bao1x_get_function_groups(struct pinctrl_dev *pctldev,
++				     unsigned int selector,
++				     const char * const **groups,
++				     unsigned int *num_groups)
++{
++	/* Every function can be selected on every pin. */
++	*groups = bao1x_group_names;
++	*num_groups = IOX_NR_PINS;
++	return 0;
++}
++
++static int bao1x_set_mux(struct pinctrl_dev *pctldev, unsigned int func,
++			 unsigned int group)
++{
++	struct bao1x_iox *iox = pinctrl_dev_get_drvdata(pctldev);
++
++	bao1x_set_af(iox, group, func);
++	return 0;
++}
++
++static int bao1x_gpio_request_enable(struct pinctrl_dev *pctldev,
++				     struct pinctrl_gpio_range *range,
++				     unsigned int pin)
++{
++	struct bao1x_iox *iox = pinctrl_dev_get_drvdata(pctldev);
++
++	bao1x_set_af(iox, pin, FUNC_GPIO);
++	return 0;
++}
++
++static const struct pinmux_ops bao1x_pinmux_ops = {
++	.get_functions_count	= bao1x_get_functions_count,
++	.get_function_name	= bao1x_get_function_name,
++	.get_function_groups	= bao1x_get_function_groups,
++	.set_mux		= bao1x_set_mux,
++	.gpio_request_enable	= bao1x_gpio_request_enable,
++	.strict			= false,
++};
++
++/* --- pinconf ------------------------------------------------------------ */
++
++static int bao1x_pinconf_set(struct pinctrl_dev *pctldev, unsigned int pin,
++			     unsigned long *configs, unsigned int num_configs)
++{
++	struct bao1x_iox *iox = pinctrl_dev_get_drvdata(pctldev);
++	unsigned int i;
++
++	for (i = 0; i < num_configs; i++) {
++		switch (pinconf_to_config_param(configs[i])) {
++		case PIN_CONFIG_BIAS_PULL_UP:
++			bao1x_rmw(iox, REG_PU(pin), 0, PIN_BIT(pin));
++			break;
++		case PIN_CONFIG_BIAS_DISABLE:
++			bao1x_rmw(iox, REG_PU(pin), PIN_BIT(pin), 0);
++			break;
++		case PIN_CONFIG_INPUT_SCHMITT_ENABLE:
++			bao1x_rmw(iox, REG_SCHMITT(pin), 0, PIN_BIT(pin));
++			break;
++		case PIN_CONFIG_SLEW_RATE:
++			/* 1 = slow */
++			if (pinconf_to_config_argument(configs[i]))
++				bao1x_rmw(iox, REG_SLEW(pin), 0, PIN_BIT(pin));
++			else
++				bao1x_rmw(iox, REG_SLEW(pin), PIN_BIT(pin), 0);
++			break;
++		default:
++			return -ENOTSUPP;
++		}
++	}
++	return 0;
++}
++
++static const struct pinconf_ops bao1x_pinconf_ops = {
++	.is_generic	= true,
++	.pin_config_set	= bao1x_pinconf_set,
++};
++
++/* --- gpiochip ------------------------------------------------------------ */
++
++static int bao1x_gpio_get_direction(struct gpio_chip *gc, unsigned int off)
++{
++	struct bao1x_iox *iox = gpiochip_get_data(gc);
++
++	if (readl_relaxed(iox->base + REG_OE(off)) & PIN_BIT(off))
++		return GPIO_LINE_DIRECTION_OUT;
++	return GPIO_LINE_DIRECTION_IN;
++}
++
++static int bao1x_gpio_direction_input(struct gpio_chip *gc, unsigned int off)
++{
++	struct bao1x_iox *iox = gpiochip_get_data(gc);
++
++	bao1x_rmw(iox, REG_OE(off), PIN_BIT(off), 0);
++	return 0;
++}
++
++static int bao1x_gpio_direction_output(struct gpio_chip *gc, unsigned int off,
++				       int value)
++{
++	struct bao1x_iox *iox = gpiochip_get_data(gc);
++
++	bao1x_rmw(iox, REG_OUT(off), PIN_BIT(off), value ? PIN_BIT(off) : 0);
++	bao1x_rmw(iox, REG_OE(off), 0, PIN_BIT(off));
++	return 0;
++}
++
++static int bao1x_gpio_get(struct gpio_chip *gc, unsigned int off)
++{
++	struct bao1x_iox *iox = gpiochip_get_data(gc);
++
++	return !!(readl_relaxed(iox->base + REG_IN(off)) & PIN_BIT(off));
++}
++
++static void bao1x_gpio_set(struct gpio_chip *gc, unsigned int off, int value)
++{
++	struct bao1x_iox *iox = gpiochip_get_data(gc);
++
++	bao1x_rmw(iox, REG_OUT(off), PIN_BIT(off), value ? PIN_BIT(off) : 0);
++}
++
++/* --- probe ---------------------------------------------------------------- */
++
++static int bao1x_iox_probe(struct platform_device *pdev)
++{
++	struct bao1x_iox *iox;
++	struct pinctrl_desc *desc;
++	int i, ret;
++
++	for (i = 0; i < IOX_NR_PINS; i++) {
++		if (!bao1x_pins[i].name) {
++			bao1x_pins[i].number = i;
++			bao1x_pins[i].name = devm_kasprintf(&pdev->dev,
++					GFP_KERNEL, "P%c%u",
++					'A' + i / 16, i % 16);
++			if (!bao1x_pins[i].name)
++				return -ENOMEM;
++		}
++		bao1x_group_names[i] = bao1x_pins[i].name;
++	}
++
++	iox = devm_kzalloc(&pdev->dev, sizeof(*iox), GFP_KERNEL);
++	if (!iox)
++		return -ENOMEM;
++	iox->dev = &pdev->dev;
++	raw_spin_lock_init(&iox->lock);
++
++	iox->base = devm_platform_ioremap_resource(pdev, 0);
++	if (IS_ERR(iox->base))
++		return PTR_ERR(iox->base);
++
++	desc = devm_kzalloc(&pdev->dev, sizeof(*desc), GFP_KERNEL);
++	if (!desc)
++		return -ENOMEM;
++	desc->name = dev_name(&pdev->dev);
++	desc->pins = bao1x_pins;
++	desc->npins = ARRAY_SIZE(bao1x_pins);
++	desc->pctlops = &bao1x_pctl_ops;
++	desc->pmxops = &bao1x_pinmux_ops;
++	desc->confops = &bao1x_pinconf_ops;
++	desc->owner = THIS_MODULE;
++
++	ret = devm_pinctrl_register_and_init(&pdev->dev, desc, iox, &iox->pctl);
++	if (ret)
++		return ret;
++	ret = pinctrl_enable(iox->pctl);
++	if (ret)
++		return ret;
++
++	iox->gc.label = dev_name(&pdev->dev);
++	iox->gc.parent = &pdev->dev;
++	iox->gc.request = gpiochip_generic_request;
++	iox->gc.free = gpiochip_generic_free;
++	iox->gc.get_direction = bao1x_gpio_get_direction;
++	iox->gc.direction_input = bao1x_gpio_direction_input;
++	iox->gc.direction_output = bao1x_gpio_direction_output;
++	iox->gc.get = bao1x_gpio_get;
++	iox->gc.set = bao1x_gpio_set;
++	iox->gc.base = -1;
++	iox->gc.ngpio = IOX_NR_PINS;
++
++	return devm_gpiochip_add_data(&pdev->dev, &iox->gc, iox);
++}
++
++static const struct of_device_id bao1x_iox_of_match[] = {
++	{ .compatible = "baochip,bao1x-iox" },
++	{ }
++};
++MODULE_DEVICE_TABLE(of, bao1x_iox_of_match);
++
++static struct platform_driver bao1x_iox_driver = {
++	.probe = bao1x_iox_probe,
++	.driver = {
++		.name = "pinctrl-bao1x",
++		.of_match_table = bao1x_iox_of_match,
++	},
++};
++builtin_platform_driver(bao1x_iox_driver);
++
++MODULE_DESCRIPTION("Baochip bao1x IOX pinctrl/GPIO driver");
++MODULE_LICENSE("GPL");
+-- 
+2.55.0
+

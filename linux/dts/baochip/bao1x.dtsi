@@ -71,6 +71,20 @@
 			reg = <0x40042000 0x10>;
 		};
 
+		iox: pinctrl@5012f000 {
+			compatible = "baochip,bao1x-iox";
+			reg = <0x5012f000 0x300>;
+			gpio-controller;
+			#gpio-cells = <2>;
+			gpio-ranges = <&iox 0 0 96>;
+
+			uart2_pins: uart2-pins {
+				/* PB13 rx / PB14 tx; also set by boot1. */
+				function = "af1";
+				groups = "PB13", "PB14";
+			};
+		};
+
 		uart2: serial@50103000 {
 			compatible = "baochip,bao1x-udma-uart";
 			/* Registers + a private IFRAM0 slice: the uDMA
@@ -80,6 +94,8 @@
 			interrupt-parent = <&irqarray5>;
 			interrupts = <10>, <9>;
 			interrupt-names = "rx", "tx";
+			pinctrl-names = "default";
+			pinctrl-0 = <&uart2_pins>;
 			/* clock-frequency (perclk) is board-provided. */
 		};
 

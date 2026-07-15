@@ -1,7 +1,7 @@
 From cb195c26bb47422f6f2c09dc7afb385767217d67 Mon Sep 17 00:00:00 2001
 From: Claude <noreply@anthropic.com>
 Date: Wed, 15 Jul 2026 10:52:42 +0200
-Subject: [PATCH 09/12] irqchip: add Baochip bao1x interrupt controller drivers
+Subject: [PATCH 09/15] irqchip: add Baochip bao1x interrupt controller drivers
 
 The bao1x SoC's VexRiscv core has no PLIC or CLINT; external interrupts
 arrive through a 32-line interrupt array (VexRiscv
