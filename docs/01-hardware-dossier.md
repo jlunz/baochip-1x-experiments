@@ -188,3 +188,7 @@ Board design files: https://github.com/baochip/dabao.
    chainload trampoline).
 5. IRQARRAY `*_dupe` routing discipline — which copy is canonical for S-mode Linux
    (cosmetic; any bank works since masks are per-bank).
+6. Whether the QFC data window is cached by the RV32, and its serial-RAM latency — decides
+   whether external HyperRAM/PSRAM (which the QFC *can* map read/write; the IP is an ESP32-style
+   engine, HyperRAM-validated in the RTL testbench) is usable as a real second memory zone. Full
+   analysis of the 2 MiB constraint, XIP rationale, and this hardware path: `06-xip-rationale-and-alternatives.md`.
