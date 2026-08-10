@@ -309,3 +309,177 @@ onto mainline HEAD (where XIP_KERNEL is being removed — the cover letter
 argues this port as the XIP user); best done after hardware confirms the
 port, alongside the Corigine USB UDC (the last phase-5 driver, which needs
 real hardware to validate meaningfully).
+
+## 2026-08-07 — Phase 4: first silicon. Image validates; shim silent
+
+First execution of this port on real hardware. Board: Dabao, boot0/boot1
+`v0.10.0-61-g5397e1b48` (`bao2-0`). Console = Raspberry Pi Debug Probe on
+PB14/PB13 @ 1Mbaud (probe UART is the `-if01` interface; **orange = probe TX
+→ PB13, yellow = probe RX → PB14**, black = GND — the probe's own labels are
+the reverse of what one might assume).
+
+### Confirmed on silicon (previously inferred from xous source)
+
+- **CPU @ 350MHz** — printed by boot1 itself (`boot1 udma console up, CPU @
+  350MHz!`). This is the DT `timebase-frequency` and the basis of the shim's
+  `TIMER0_TICKS_MULT=2`. Board type reads back `Dabao`; `skipping check` =
+  false (clock skipping would have wrecked timer calibration).
+- **Signing/UF2/slot layout are correct**: boot1 accepted the image with
+  `Booting with key 3/3(dev )`. `tools/build-dabao-image.sh` output needs no
+  changes.
+- **DEVELOPER_MODE burn is gated on a valid signature.** `secboot.rs` runs
+  `validate_image` *before* `hardened_erase_policy`, so a corrupt image
+  yields `Image did not validate` with the fuses untouched. Burn message:
+  `Developer key detected, ensuring secrets are erased`.
+- **The board recovers from resets indefinitely** — `bootwait` keeps boot1 in
+  charge after the burn.
+
+### The failure
+
+boot1 validates, burns, jumps — and the shim emits nothing. Deterministic.
+
+Eliminated by evidence, not argument:
+- *I-cache staleness at the handoff* (`jump_to` does no `fence.i`, and the
+  first attempt flashed and booted in one power cycle): booting the same
+  image from a cold reset failed identically.
+- *Wrong jump target*: the signature block's first word is `0x3000006f` =
+  `jal x0, +0x300` → `0x60060300`, exactly the shim's ELF entry, and the
+  bytes there match `bao1x-sbi.bin`.
+- *Wrong register offsets*: UART2 base/TX offsets verified against
+  `bao1x_peri.svd`.
+
+**Prime suspect: `duart_puts()` spins forever.** It is the first statement in
+`main()` and waits `while (DUART_SR & 1)` unbounded. `SFR_ETUC` (the DUART
+baud divider, offset 0xc) has reset value 0 and the shim never programs it; a
+zero divider means the shifter never drains, wedging on the second character.
+The Dabao pinout exposes **no DUART pins at all**, so this is a wait on a
+peripheral the board does not even bring out. Renode's DUART model completes
+instantly, which is why nine phases of emulation never touched it. Second
+candidate: the unbounded uDMA TX-completion wait in `uart2_tx()` (docs/05 had
+already flagged "Renode DMA is instant" as untestable in emulation).
+
+Fix built and Renode-regression-clean (not yet proven on hardware — the board
+stopped responding before it could be flashed): every hardware poll bounded by
+`SPIN_LIMIT`; uDMA TX enqueued as `CFG_EN | CFG_BACKPRESSURE` to match the
+only sequence proven on this silicon (bao1x-hal `udma_enqueue`); stage markers
+`SBI:entry` / `duart-ok` / `uart-init` / `dtb-copied` / `csr-done`, the first
+emitted *before* `uart2_init()` so it rides boot1's known-good UART setup.
+
+### Flashing without USB (the standard path for this board)
+
+boot1's REPL reads `UART_RX` whenever USB is not `Configured`
+(`boot1/src/main.rs:318`), so the whole bootloader is drivable over PB14/PB13
+— which is also how the third-party dabao-sdk flashes (`bao_flash` over
+serial). `sources/xous-core/bao1x-boot/uf2send.py` streams base64 UF2 blocks
+into the `uf2` REPL command. USB is needed only for power.
+
+**PROG = guaranteed safe-mode.** `get_key()` on Dabao samples a boot pin; low
+→ `KeyPress::Select` → boot1 prints `Boot bypassed with keypress` and stays in
+the REPL regardless of `bootwait`. Sequence: hold PROG, press+release RESET
+(still holding), wait 1s, release PROG.
+
+**`RST_N` is on the header** (`GPIO_PB1`, the Pico-form-factor RUN position,
+physical pin 30). Wiring a DTR-capable adapter to it gives software-controlled
+reset and removes the human from the iteration loop — worth doing.
+
+### Host-side traps (cost real time)
+
+- The dev host is a **QEMU VM** (Silverblue) with the board passed through,
+  and Claude runs in a toolbox inside it. Device nodes arrive as
+  `nobody:nobody 0660`; `setup/99-baochip.rules` (installed on the *host*,
+  udev does not run in the toolbox) makes them 0666. Without it the node
+  reverts on **every** board reset.
+- **Device numbers are not stable.** When the board's USB drops, the Debug
+  Probe renumbers (`ttyACM1`→`ttyACM0`). Always use
+  `/dev/serial/by-id/...` paths.
+- `pkill -f <pattern>` matching the wrapper shell kills the tool's own
+  session (already in docs/03; it bit again here and lost a capture).
+- Blind spot to avoid repeating: leaving no capture running across a
+  user-performed replug means the event is unobservable afterwards.
+
+### Open at end of session
+
+After an unplug/replug the board went silent on **both** USB (absent from the
+*physical host's* `lsusb`, so upstream of the VM) and the UART (no boot0
+banner, which is the real anomaly — boot0 prints before any of boot1's logic).
+Two independent paths failing together points at power/connection rather than
+firmware; note also that our flashing can only ever touch the payload region,
+since boot1 range-checks every UF2 write (`usb/handlers.rs:249`), and boot1
+was reached cleanly twice *after* the burn. Next: loopback-test the probe path
+(`tools/uart-loopback.py`) to rule our own measurement chain in or out, check
+for a power LED, then try a different cable and a direct root-hub port.
+
+## 2026-08-07 (cont.) — shim runs end-to-end on silicon; two more Renode blind spots
+
+Hands-free loop established: an ESPHome-controlled GPIO drives RUN/RST_N
+(header pin 30), so reset is a REST call — `tools/board-reset.py`. ESPHome
+addresses entities by **display name**, URL-encoded (`GPIO%20Switch%2015`);
+the slug from the SSE `id` field 404s, and POST needs an explicit
+zero-length body or the device answers 411.
+
+### Bug 1: `duart_puts()` wedged the shim (confirmed + fixed)
+
+`SBI:duart-ok` now appears, so bounding the poll was the fix. The Dabao
+schematic settles the root cause beyond inference: **there is no DUART net
+anywhere on the board** (nor any LED, and only one USB-C, two buttons, one
+EMS4000 are populated — the BOM is the truth, the schematic carries
+alternates). `SFR_ETUC` reset value 0 ⇒ SFR_SR never clears.
+
+### Bug 2: `mcounteren`/`scounteren` do not exist on this VexRiscv
+
+The new M-mode trap reporter caught it exactly:
+
+    SBI:FATAL M-mode trap mcause=0x00000002 mepc=0x600604f0 mtval=0x3063d073
+
+`0x3063d073` decodes as `csrwi mcounteren, 7` (csr=0x306, funct3=101
+CSRRWI, uimm=7) — illegal instruction. This was invisible before because
+`entry.S` parks mscratch at 0 as its "in M-mode" marker, so `trap_entry`
+handed the handler sp=0 and it died on its first store. **Fix: set mscratch
+to the M-stack before touching any CSR**, and report M-mode traps.
+
+Important wrong turn: simply deleting the two writes **broke Renode** —
+Renode *does* implement counter access control, and without the write the
+kernel's S-mode counter reads trap and boot wedges. Neither "always write"
+nor "never write" is correct across both. The shim now *probes*:
+`csr_write_probe()` sets a flag making an M-mode illegal instruction skip
+(mepc += 4) and report absence. Silicon prints `SBI:mcounteren-absent`,
+Renode takes the write. CSR instructions are never compressed, so mepc+4 is
+always right.
+
+Shim now completes: `SBI:csr-done` → `bao1x-sbi: jumping to kernel`.
+
+### Bug 3 (same class): the kernel's DUART earlycon has the identical hang
+
+`drivers/tty/serial/bao1x_duart.c` spun unbounded on `DUART_SR_BUSY`, and
+its comment asserted the DUART "works with no clock or pin setup at all" —
+which silicon disproves. Bounded to `DUART_TX_TIMEOUT_US` (10 ms) and the
+comment corrected. Also switched `dabao.dts` to `earlycon=sbi` with
+`stdout-path = &uart2`: the SBI console reaches UART2 through the shim, so
+early and late output land on the same wire that this board actually routes.
+Renode stays green through all of it.
+
+**Lesson, now costing three bugs: every unbounded `while (STATUS & bit)` is
+untested code until silicon runs it.** Renode's DUART drains instantly, its
+DMA is synchronous, and it implements every CSR.
+
+### Host-side: USB passthrough does not survive a reset
+
+Each RST_N pulse makes the board detach and re-attach as a *new* USB device
+(host device number climbed 30 → 62 → 65 across resets). A VM passthrough
+bound to a bus/port address cannot follow that, so the guest loses mass
+storage *and* the USB console on every reset, while the *physical host*
+enumerates it fine. Worse, because the host reaches `Configured`, boot1 sets
+USB_CONNECTED and **stops reading the UART REPL** — so the serial fallback is
+unavailable too. Fix: pass through by vendor:product (`1d50:6196`) with
+`startupPolicy='optional'` so the VM re-attaches automatically.
+
+### Open
+
+After the kernel started (21:25) the board stopped responding to RST_N
+entirely — a verified ON→OFF→ON toggle with holds up to 3 s produced no boot0
+banner, where identical pulses worked at 21:02 and 21:22 while the board sat
+in boot1 or the hung shim. Distinguish "reset line not reaching the chip"
+from "board unpowered" with the physical RESET button and a multimeter on
+pin 36 (3V3) / pin 40 (VBUS) against GND. The kernel itself has not yet
+printed anything; with `earlycon=sbi` now in place its first output should
+arrive over the shim's DBCN on UART2, so the next boot is the real test.

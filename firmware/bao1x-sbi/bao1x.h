@@ -41,10 +41,22 @@
 
 #define KERNEL_ENTRY    0x60070000u
 
-/* --- DUART: TX-only debug UART (shim diagnostics only) ------------------- */
+/* --- DUART: TX-only debug UART (shim diagnostics only) -------------------
+ * The pad is not routed anywhere reachable on Dabao, and nothing guarantees
+ * SFR_ETUC (the baud divider, reset value 0) has been programmed by the time
+ * boot1 hands over. A zero divider means SFR_SR never clears, so every wait
+ * on this peripheral must be bounded -- see SPIN_LIMIT. Losing debug output
+ * is acceptable; wedging the boot on a debug pad is not.
+ */
 #define DUART_TXD       MMIO32(0x40042000u + 0x0)
 #define DUART_CR        MMIO32(0x40042000u + 0x4)
 #define DUART_SR        MMIO32(0x40042000u + 0x8)
+#define DUART_ETUC      MMIO32(0x40042000u + 0xc)
+
+/* Upper bound on any hardware poll loop. ~2M iterations is several ms even at
+ * 350MHz -- orders of magnitude beyond a 1Mbaud character time -- so a healthy
+ * peripheral never reaches it, and a wedged one cannot hang the boot. */
+#define SPIN_LIMIT      2000000u
 
 /* --- uDMA ----------------------------------------------------------------- */
 #define UDMA_CTRL_CG    MMIO32(0x50100000u + 0x0)
@@ -70,6 +82,10 @@
 #define UART_SETUP_DIV(d)   ((uint32_t)(d) << 16)
 
 #define UART_CFG_EN         (1u << 4)
+/* boot1 enqueues every uDMA transfer with the backpressure bit set
+ * (bao1x-hal udma_enqueue: CFG_EN | CFG_BACKPRESSURE). That is the only
+ * uDMA TX sequence proven on silicon, so match it exactly. */
+#define UART_CFG_BACKPRESSURE (1u << 7)
 
 /* TX bounce buffer: tail of IFRAM0 (uDMA can only read IFRAM on silicon).
  * The kernel's future uart driver allocates from the IFRAM0 head; the shim
@@ -110,10 +126,25 @@ void duart_puts(const char *s);
 void duart_puthex(uint32_t v);
 void uart2_init(void);
 void uart2_tx(const uint8_t *buf, uint32_t len);
+void uart2_puts(const char *s);
+void uart2_puthex(uint32_t v);
 int uart2_rx_byte(void);
 
 /* trap.c */
 void trap_handler(uint32_t *frame);
 uint64_t read_mcycle64(void);
+extern volatile int m_probe_active;
+extern volatile int m_probe_faulted;
+
+/* Write a CSR that may not be implemented on this core. Evaluates to 1 if the
+ * write took effect, 0 if it trapped as an illegal instruction. Requires
+ * mscratch to already hold the M-stack, so traps are survivable. */
+#define csr_write_probe(csr, v) ({      \
+    m_probe_faulted = 0;                \
+    m_probe_active = 1;                 \
+    csr_write(csr, v);                  \
+    m_probe_active = 0;                 \
+    !m_probe_faulted;                   \
+})
 
 #endif

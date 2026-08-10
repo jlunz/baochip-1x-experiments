@@ -262,9 +262,49 @@ static void sbi_dispatch(uint32_t *frame)
     (void)a2;
 }
 
+/* MPP field of mstatus (bits 12:11); 3 = the trap came from M-mode, i.e. from
+ * shim code itself. entry.S assumes that never happens (it parks mscratch at 0
+ * as the "in M-mode" marker), so by the time we get here sp was already
+ * swapped with 0 and the frame is unusable -- report and stop rather than
+ * fault again inside the handler. Bring-up found this the hard way: a CSR the
+ * silicon does not implement traps here and the shim vanishes without a word.
+ */
+#define MSTATUS_MPP_MASK    (3u << 11)
+#define MSTATUS_MPP_M       (3u << 11)
+
+/* Probe mode: while active, an illegal instruction taken in M-mode is treated
+ * as "this CSR does not exist here" -- the faulting instruction is skipped and
+ * execution resumes. Lets the shim attempt CSR writes that some cores in this
+ * family implement and others do not, without hard-coding a platform guess.
+ * CSR instructions are never compressed, so mepc + 4 is always correct. */
+volatile int m_probe_active;
+volatile int m_probe_faulted;
+
+static void fatal_m_trap(uint32_t cause)
+{
+    uart2_puts("\r\nSBI:FATAL M-mode trap mcause=");
+    uart2_puthex(cause);
+    uart2_puts(" mepc=");
+    uart2_puthex(csr_read(mepc));
+    uart2_puts(" mtval=");
+    uart2_puthex(csr_read(mtval));
+    uart2_puts("\r\n");
+    for (;;)
+        __asm__ volatile("wfi");
+}
+
 void trap_handler(uint32_t *frame)
 {
     uint32_t cause = csr_read(mcause);
+
+    if ((csr_read(mstatus) & MSTATUS_MPP_MASK) == MSTATUS_MPP_M) {
+        if (m_probe_active && cause == CAUSE_ILLEGAL) {
+            m_probe_faulted = 1;
+            csr_write(mepc, csr_read(mepc) + 4);
+            return;
+        }
+        fatal_m_trap(cause);
+    }
 
     switch (cause) {
     case CAUSE_ECALL_S:

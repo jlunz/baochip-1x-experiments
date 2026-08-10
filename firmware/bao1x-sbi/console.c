@@ -9,15 +9,29 @@
  */
 #include "bao1x.h"
 
+/* Bounded wait for the DUART shifter. Returns 0 on timeout, in which case the
+ * caller gives up on this byte rather than spinning forever: on Dabao the pad
+ * is unrouted and SFR_ETUC may still be 0, which parks SFR_SR at busy. */
+static int duart_wait_idle(void)
+{
+    for (uint32_t spin = 0; spin < SPIN_LIMIT; spin++) {
+        if (!(DUART_SR & 1))
+            return 1;
+    }
+    return 0;
+}
+
 void duart_puts(const char *s)
 {
     DUART_CR = 1;
     while (*s) {
         if (*s == '\n') {
-            while (DUART_SR & 1) { }
+            if (!duart_wait_idle())
+                return;
             DUART_TXD = '\r';
         }
-        while (DUART_SR & 1) { }
+        if (!duart_wait_idle())
+            return;
         DUART_TXD = (uint32_t)*s++;
     }
 }
@@ -55,11 +69,40 @@ void uart2_tx(const uint8_t *buf, uint32_t len)
             dst[i] = buf[i];
         UART2_TX_SADDR = TX_BOUNCE;
         UART2_TX_SIZE = chunk;
-        UART2_TX_CFG = UART_CFG_EN;
-        while (UART2_TX_SIZE != 0 || (UART2_STATUS & 1)) { }
+        UART2_TX_CFG = UART_CFG_EN | UART_CFG_BACKPRESSURE;
+        /* Bounded: a wedged uDMA channel must not take the boot with it.
+         * Renode completes DMA instantly, so this loop only ever spins on
+         * real silicon. */
+        for (uint32_t spin = 0; spin < SPIN_LIMIT; spin++) {
+            if (UART2_TX_SIZE == 0 && !(UART2_STATUS & 1))
+                break;
+        }
         buf += chunk;
         len -= chunk;
     }
+}
+
+/* Diagnostics on the one console this board actually brings out. The DUART
+ * equivalents write to an unrouted pad, so anything that matters for bring-up
+ * goes here instead. */
+void uart2_puts(const char *s)
+{
+    const char *p = s;
+    uint32_t len = 0;
+    while (*p++)
+        len++;
+    uart2_tx((const uint8_t *)s, len);
+}
+
+void uart2_puthex(uint32_t v)
+{
+    char buf[11];
+    buf[0] = '0';
+    buf[1] = 'x';
+    for (int i = 0; i < 8; i++)
+        buf[2 + i] = "0123456789abcdef"[(v >> (28 - 4 * i)) & 0xf];
+    buf[10] = '\0';
+    uart2_puts(buf);
 }
 
 int uart2_rx_byte(void)

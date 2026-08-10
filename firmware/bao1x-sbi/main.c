@@ -27,10 +27,22 @@ extern uint8_t __mstack_top[];
 /* Interrupts delegated to S-mode: SSIP, STIP, SEIP. */
 #define MIDELEG_MASK ((1u << 1) | (1u << 5) | (1u << 9))
 
+/* Stage markers on the console UART (uart2_puts). Bring-up instrumentation:
+ * with the DUART unrouted on Dabao this is the only channel that reaches a
+ * human, and each marker pins down how far the shim got before it stopped.
+ * The first is deliberately emitted *before* uart2_init(), reusing the
+ * configuration boot1 leaves behind -- proven working, since boot1 printed
+ * through it moments ago.
+ */
+#define mark(s) uart2_puts(s)
+
 void main(void)
 {
+    mark("SBI:entry\r\n");
     duart_puts("\nbao1x-sbi: M-mode SBI shim\n");
+    mark("SBI:duart-ok\r\n");
     uart2_init();
+    mark("SBI:uart-init\r\n");
 
     /* DTB: RRAM -> top of kernel RAM (the kernel memblock-reserves it;
      * XIP setup_vm cannot read a DTB that is outside RAM). */
@@ -44,21 +56,46 @@ void main(void)
     uint32_t *dst = (uint32_t *)DTB_DEST;
     for (uint32_t i = 0; i < (dtb_size + 3) / 4; i++)
         dst[i] = src[i];
+    mark("SBI:dtb-copied\r\n");
 
-    csr_write(medeleg, MEDELEG_MASK);
-    csr_write(mideleg, MIDELEG_MASK);
-    csr_write(mie, MIE_MEIE);
-    __asm__ volatile("csrw 0xbc0, zero");   /* mask the whole M ext array */
+    /* Give traps a usable stack *before* touching any CSR. A CSR this silicon
+     * does not implement traps as an illegal instruction, and with mscratch
+     * still 0 (entry.S's "in M-mode" marker) trap_entry would hand the handler
+     * sp = 0 and die on its first store -- the shim would simply vanish. With
+     * this set, trap_handler can report the offending mepc instead. */
+    csr_write(mscratch, (uint32_t)__mstack_top);
+
+    /* Written one at a time with markers: any of these can be absent on a
+     * given VexRiscv configuration, and Renode implements them all, so
+     * emulation cannot tell us which. */
+    csr_write(medeleg, MEDELEG_MASK);      mark("SBI:medeleg\r\n");
+    csr_write(mideleg, MIDELEG_MASK);      mark("SBI:mideleg\r\n");
+    csr_write(mie, MIE_MEIE);              mark("SBI:mie\r\n");
+    __asm__ volatile("csrw 0xbc0, zero");  mark("SBI:extmask\r\n");
 
     /* Fresh S-state for the kernel. */
-    csr_write(satp, 0);
-    csr_write(stvec, 0);
-    csr_write(sscratch, 0);
-    csr_write(sie, 0);
-    /* cycle/instret visible to S and U (no time CSR to enable). */
-    csr_write(mcounteren, 0x7);
-    csr_write(scounteren, 0x7);
+    csr_write(satp, 0);                    mark("SBI:satp\r\n");
+    csr_write(stvec, 0);                   mark("SBI:stvec\r\n");
+    csr_write(sscratch, 0);                mark("SBI:sscratch\r\n");
+    csr_write(sie, 0);                     mark("SBI:sie\r\n");
+    /* cycle/instret visible to S and U (no time CSR to enable).
+     *
+     * These two are probed rather than written outright: the Dabao's VexRiscv
+     * does not implement them and traps (measured: mcause=2,
+     * mtval=0x3063d073 = `csrwi mcounteren, 7`), while Renode does implement
+     * them — and there the kernel *needs* the write, or its S-mode counter
+     * reads trap and the boot wedges. Neither "always write" nor "never
+     * write" works on both, so attempt it and accept a trap as "absent". */
+    if (csr_write_probe(mcounteren, 0x7))
+        mark("SBI:mcounteren\r\n");
+    else
+        mark("SBI:mcounteren-absent\r\n");
+    if (csr_write_probe(scounteren, 0x7))
+        mark("SBI:scounteren\r\n");
+    else
+        mark("SBI:scounteren-absent\r\n");
 
+    mark("SBI:csr-done\r\n");
     duart_puts("bao1x-sbi: entering kernel at ");
     duart_puthex(KERNEL_ENTRY);
     duart_puts("\n");
@@ -67,9 +104,7 @@ void main(void)
     static const char banner[] = "bao1x-sbi: jumping to kernel\r\n";
     uart2_tx((const uint8_t *)banner, sizeof(banner) - 1);
 
-    /* From here on the shim only runs via mtvec; give traps the M-stack. */
-    csr_write(mscratch, (uint32_t)__mstack_top);
-
+    /* mscratch already holds the M-stack (set before the CSR block above). */
     uint32_t ms = csr_read(mstatus);
     ms &= ~((3u << 11) | MSTATUS_MPIE);     /* MPP=0, MPIE=0 */
     ms |= MSTATUS_MPP_S;                    /* MPP=S */

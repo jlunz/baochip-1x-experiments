@@ -4,7 +4,9 @@
 > Chronological detail and evidence live in `04-bringup-log.md` (lab notebook);
 > this file is the *entry point for a future session/agent* picking up the work.
 
-Last updated: **2026-07-15** (phases 0-3 + 5 done except USB UDC; phase 6 packaged: 22 patches in review order incl. SoC/dts/defconfig/MAINTAINERS; phase 4 awaits the user).
+Last updated: **2026-08-07** (phase 4 started on real hardware: image validates
+and DEVELOPER_MODE is burnt; shim hangs pre-console, fix built but unproven —
+board stopped responding mid-session, see 04-bringup-log).
 
 ## Phase status
 
@@ -14,7 +16,7 @@ Last updated: **2026-07-15** (phases 0-3 + 5 done except USB UDC; phase 6 packag
 | 1 — rv32 XIP feasibility (QEMU virt) | ✅ done | busybox shell in a **2 MiB** RAM window; `emulation/qemu/*.sh` |
 | 2 — Renode bao1x platform | ✅ done | `emulation/renode/tests/run-smoke.sh` GREEN |
 | 3 — SBI shim + Linux in Renode | ✅ done | `tests/linux.robot` GREEN: login on ttyBAO0, native irqchip/serial stack, `sleep 1` returns |
-| 4 — hardware bring-up on Dabao | 🟡 **prepared, blocked on user** | `build/dabao/dabao-linux.uf2` (signed, verified); flashing guide `05-hardware-bringup.md`; needs the physical board |
+| 4 — hardware bring-up on Dabao | 🟡 **in progress on silicon** | image validates on-chip (`Booting with key 3/3(dev )`), DEVELOPER_MODE burnt, CPU 350MHz confirmed; shim silent after the jump — bounded-wait + stage-marker fix built and Renode-clean, **not yet proven on hardware** |
 | 5 — driver expansion | 🟡 nearly done | pinctrl/GPIO ✅, I2C ✅, SPI ✅, RRAM-MTD+JFFS2 ✅ (all robot-tested); SD n/a on Dabao (no slot); USB-UDC not started (needs hardware to validate) |
 | 6 — upstream packaging | 🟡 nearly done | 22 patches in review order (SoC/dts/defconfig/MAINTAINERS included, dtbs_check clean); mainline-HEAD forward-port outstanding |
 
@@ -68,10 +70,16 @@ mtd-rom at **0x60220000** (usable RRAM ends 0x603DA000). Native drivers:
 
 ## Immediate next steps
 
-1. **Phase 4 (user)**: flash `build/dabao/dabao-linux.uf2` per
-   `05-hardware-bringup.md` (⚠ irreversible DEVELOPER_MODE burn, approved
-   2026-07-14). First-on-silicon watch list is in that file (rdtime
-   emulation, timer scaling, UART divider).
+1. **Phase 4 (in progress)**: DEVELOPER_MODE is already burnt; the image
+   validates on-chip. The open item is the shim hanging before any console
+   output — flash the instrumented build (bounded `SPIN_LIMIT` waits + `SBI:*`
+   stage markers) and read the last marker. Prime suspect is `duart_puts()`
+   spinning on an unrouted DUART whose `SFR_ETUC` divider is 0. Flash over the
+   **console UART**, not USB (`uf2send.py` into boot1's REPL); PROG+RESET is
+   the guaranteed way back to boot1. See `05-hardware-bringup.md`.
+   *Blocked at end of 2026-08-07: board silent on both USB and UART after a
+   replug — loopback-test the probe path, check power LED, try another cable
+   and a direct root-hub port before suspecting the board.*
 2. **Corigine USB UDC** (0x50200000, port from xous
    `libs/bao1x-hal/src/usb/`) — the last phase-5 driver; needs real
    hardware to validate meaningfully, so do it after/with phase 4.
@@ -100,3 +108,14 @@ mtd-rom at **0x60220000** (usable RRAM ends 0x603DA000). Native drivers:
 - QEMU pflash must never be CFI-probed while executing from it (mtd-rom).
 - The bao1x IRQARRAY base addresses follow LiteX *alphabetical* allocation
   (0,1,10..19,2..9) — do not "fix" the ordering in bao1x.repl.
+- **Emulation cannot test busy-waits.** Renode's DUART completes instantly and
+  its DMA is synchronous, so every `while (STATUS & bit)` in the shim is
+  effectively untested until silicon. Bound them all (`SPIN_LIMIT`): losing
+  debug output beats wedging the boot. This cost a whole hardware session.
+- Hardware serial: address ports via `/dev/serial/by-id/`, never `ttyACMn`
+  (the debug probe renumbers when the board's USB drops); install
+  `setup/99-baochip.rules` **on the host** or permissions reset on every board
+  reset. The dev host is a QEMU VM with the board passed through — if the
+  *host's* `lsusb` lacks `1d50:6196`, it is not a passthrough problem.
+- Keep a UART capture running *across* any user-performed reset/replug;
+  otherwise the event is unobservable after the fact.
