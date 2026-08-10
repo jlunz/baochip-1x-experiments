@@ -1,3 +1,9 @@
+Note from human:  
+This is an experiment in how far I can push Claude Code on a problem.  
+Treat everything you see here as untested, unverified and potentially very wrong.  
+Letting it run autonomously has already caused some problems, so beware!
+
+
 # Mainline Linux on Baochip-1x / Dabao
 
 Port of mainline Linux to the [Baochip-1x](https://baochip.com/) SoC (VexRiscv RV32-IMAC,
