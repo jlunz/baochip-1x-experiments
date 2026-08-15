@@ -80,9 +80,13 @@ automatically, see below).
 - **PROG button = guaranteed boot1 REPL**, regardless of `bootwait`:
   hold PROG, press+release RESET (keep holding PROG), wait 1 s, release PROG.
   boot1 prints `Boot bypassed with keypress`.
-- **`RST_N` is on the header** (`GPIO_PB1`, Pico-form-factor RUN, physical
-  pin 30). Wire a DTR-capable USB-serial adapter to it for software-controlled
-  reset and hands-free iteration.
+- **`RST_N` is on the header** (`AORSTn`, SoC ball H5, Pico-form-factor RUN,
+  physical pin 30). Wire a DTR-capable USB-serial adapter to it for
+  software-controlled reset and hands-free iteration. It is **not** `GPIO_PB1`
+  — that is the adjacent header pin 29, on ball A9. Note this is the
+  always-on-domain reset: `XRSTn`, the chip's main external reset, is bonded
+  but unrouted on Dabao, so `AORSTn` and a power cycle are the only resets the
+  board exposes.
 - Flashing can never brick the bootloader: boot1 range-checks every UF2 write
   to the payload region (`usb/handlers.rs:249`).
 - The DEVELOPER_MODE burn is gated on a **valid signature** — `secboot.rs`

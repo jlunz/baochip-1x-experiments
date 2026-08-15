@@ -96,8 +96,8 @@ unbounded, so it parks on the first character. See
 and this board never brings the console up.
 
 **4. `RST_N` and `PB1` are adjacent pins, not the same pin.** The bring-up guide
-(`05:83`) and log (`04:381`) call header pin 30 `GPIO_PB1`. The board files show
-two distinct nets on two distinct balls:
+and the lab notebook both called header pin 30 `GPIO_PB1`; both are now
+corrected. The board files show two distinct nets on two distinct balls:
 
 | Header pin | Net | SoC ball | Symbol pin name |
 |---|---|---|---|

@@ -382,6 +382,12 @@ the REPL regardless of `bootwait`. Sequence: hold PROG, press+release RESET
 physical pin 30). Wiring a DTR-capable adapter to it gives software-controlled
 reset and removes the human from the iteration loop — worth doing.
 
+> **Corrected 2026-08-15:** the pin is `AORSTn` (SoC ball H5), not `GPIO_PB1` —
+> that is the adjacent header pin 29, on ball A9. Pin 30 and the RUN position
+> are right. It matters because `AORSTn` resets the always-on domain and
+> `XRSTn`, the main external reset, is unrouted on Dabao. See
+> `07-board-incident-2026-08-07.md`, correction 4.
+
 ### Host-side traps (cost real time)
 
 - The dev host is a **QEMU VM** (Silverblue) with the board passed through,
