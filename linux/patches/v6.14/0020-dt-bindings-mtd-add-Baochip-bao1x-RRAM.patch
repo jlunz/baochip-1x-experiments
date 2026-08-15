@@ -32,10 +32,10 @@ index 000000000..371a2ce2f
 +  The 4MiB resistive RAM on the Baochip bao1x SoC. The array is
 +  memory-mapped for reads and execute-in-place; writes go through the
 +  RRC controller's 32-byte line buffer and work in place (no erase).
-+  Partitions follow the standard fixed-partitions binding; the vendor
++  Partitions follow the standard fixed-partitions binding. The vendor
 +  boot chain occupies the start of the array and the last 0x26000 bytes
-+  are reserved for device secrets, so writable partitions must stay
-+  inside the region between them.
++  hold device secrets and one-way counters; reg must exclude that tail
++  rather than merely leaving it unpartitioned.
 +
 +maintainers:
 +  - Julian Lunz <julianlunz+claude@proton.me>
@@ -68,7 +68,7 @@ index 000000000..371a2ce2f
 +  - |
 +    rram@60000000 {
 +        compatible = "baochip,bao1x-rram";
-+        reg = <0x60000000 0x400000>, <0x40000000 0x1000>;
++        reg = <0x60000000 0x3da000>, <0x40000000 0x1000>;
 +        reg-names = "array", "rrc";
 +
 +        partitions {
@@ -84,7 +84,7 @@ index 000000000..371a2ce2f
 +
 +            partition@360000 {
 +                label = "data";
-+                reg = <0x360000 0x7a000>;
++                reg = <0x360000 0x79000>;
 +            };
 +        };
 +    };
