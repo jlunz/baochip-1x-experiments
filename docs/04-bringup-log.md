@@ -563,7 +563,7 @@ ordering in `08-recovery-and-risk-ladder.md`.
 - `SHIM_ONLY=1`: shim runs every stage then parks in a 1 Hz `SBI:alive`
   heartbeat. `build-dabao-image.sh` builds a payload with **no kernel and no
   rootfs** in that mode, so boot0's fallback path has nothing to land on.
-- kernel DUART earlycon bounded to 10 ms; the binding text that claimed the
+- kernel DUART earlycon bounded by a latched spin count; the binding text that claimed the
   DUART "needs no clock or pin configuration" corrected.
 - `dabao.dts`: `earlycon=sbi`, `stdout-path = &uart2`.
 - `bao1x-rram.c`: refuse writes/erases below array offset `0x60000` with
@@ -575,3 +575,89 @@ Shim builds clean for `BOARD=dabao`, `BOARD=dabao SHIM_ONLY=1` and
 `BOARD=renode` with `-Wall -Wextra`; all 22 patches pass a hunk-count audit.
 **None of it has run on silicon** — the kernel patches could not even be
 compile-tested here, since `sources/linux` is not present in this container.
+
+## 2026-08-16 (cont.) — review round on the reconstructed fixes
+
+Still no hardware. A `/code-review` pass over the four commits above found
+thirteen issues; the ones that mattered are recorded here because several were
+in the *recovery tooling itself*, which is the worst place for them.
+
+### The tooling did not work end to end
+
+- **`refresh-patches.sh --check` failed unconditionally**, so no image could be
+  built at all. 21 of the 22 committed patches carry git's `-- \n<version>`
+  signature trailer; the comparator sliced from `diff --git` to EOF while
+  `format-patch --no-signature` never emits one, so every patch reported drift.
+  The comparator now strips the trailer from both sides.
+- **`refresh` mode deleted the series before knowing it could replace it.**
+  `fetch-sources.sh` clones with `--depth 1 --branch v6.14`, so on a fresh
+  container HEAD *is* the base tag and `format-patch v6.14..HEAD` yields
+  nothing — `rm -f` would then have wiped all 22 committed patches. It now
+  resolves the series branch by name (`bao1x-xip-fixes`), refuses to run when
+  the tree sits on the base tag, and stages the regeneration before removing
+  anything. `--zero-commit --no-numbered` is also gone: it would have rewritten
+  every header and destroyed the `[PATCH nn/22]` ordering phase 6 depends on.
+- **The drift check gated the shim-only build too**, coupling the kernel-free
+  recovery image to the state of the kernel tree. It now runs only on the
+  kernel-bearing path.
+
+### Stale objects across a SHIM_ONLY toggle
+
+`BOARD` and `SHIM_ONLY` change the code but not any `.c` timestamp, and
+`build-dabao-image.sh` reuses one `O=` directory for both modes. Reproduced: a
+full build after a shim-only build relinked the stale `main.o` and still
+carried the heartbeat. The reverse is worse — an image named
+`dabao-shim-only.uf2` that `mret`s to `0x60070000`, an address that payload
+never writes. Objects now depend on a stamp holding the flags. The shim-only
+branch also checks the binary actually carries its marker, and each mode
+removes the other's UF2 so a stale file cannot be flashed by mistake.
+
+*This is the same class of mistake as the emulation blind spots: I verified the
+three variants by building each into a **separate** output directory, which is
+precisely the arrangement in which the bug cannot appear.*
+
+### se0_release() ran before traps were survivable
+
+`csr_write(mscratch, __mstack_top)` sat 20 lines below the new IOX writes, with
+a comment explaining that without it a trap hands the handler `sp = 0` and the
+shim vanishes silently. That reasoning applies to peripheral MMIO as much as to
+CSRs. `mscratch` is now set immediately after `SBI:entry`, so all of `main()`
+is trap-survivable; `trap_entry` never read the old "0 = in M-mode" convention
+(`trap_handler` uses `mstatus.MPP`), so nothing depended on it.
+
+### The DUART bound was not the bound it claimed
+
+`udelay(1)` scales by `lpj_fine`, which `time_init()` sets long after earlycon
+is registered — so `DUART_TX_TIMEOUT_US` was fictional at exactly the moment it
+was needed, and on this SoC `get_cycles()` is `rdtime`, emulated by trapping
+into the shim. Replaced with a raw iteration count that latches on first
+expiry: a permanently stuck busy flag now costs one bound for the whole boot
+log instead of one per character.
+
+### Two claims in the docs were wrong
+
+- Rung 2 said a shim-only flash "leaves nothing for boot0's fallback to land
+  on". boot1 writes only the blocks a UF2 carries and never erases, so a
+  previously flashed kernel survives at 0x60070000. It is never *reached* — the
+  signature block covers only the shim, and this shim has no jump — but the
+  region is not clear, and the doc now says so.
+- Rung 5 told the operator to prove the RRAM write guard by writing offset 0.
+  With no `CONFIG_MTD_PARTITIONED_MASTER` the master device is not exposed and
+  the lowest partition starts at 0x220000, so that test cannot reach the check
+  and passes for the wrong reason. The guard covers a mis-specified partition
+  table, not a userspace write; the doc now states that and says to exercise it
+  in Renode instead.
+
+### Also fixed in board-triage.py
+
+The reset was issued by a blocking subprocess *before* the capture loop began,
+so the banners had to survive in the tty buffer — a healthy board could have
+been reported SILENT. It now launches the reset without waiting and captures
+throughout. Separately: `'�'.isprintable()` is `True`, so counting
+printables on the decoded string made the wrong-baud hint dead code (it counts
+raw bytes now, as `baud-scan.py` already did); a capture that arrived but
+matched no banner fell through to the SILENT verdict and its power/cable
+triage; a board showing boot1 but not boot0 was reported as unrecognised; and
+the stage table was missing every marker this series added. Captures are now
+saved under `build/hw/`, since the point of running it on a healthy board is to
+keep the baseline.

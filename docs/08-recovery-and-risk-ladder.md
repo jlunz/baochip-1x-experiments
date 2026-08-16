@@ -139,8 +139,14 @@ python3 sources/xous-core/bao1x-boot/uf2send.py \
 ```
 
 `SHIM_ONLY=1` builds a payload containing **only** the shim — no kernel, no
-rootfs. Two reasons that matters: it is quick to sign and verify, and it leaves
-nothing in the payload region for boot0's fallback path to land on.
+rootfs. It is quick to sign and verify, and the signature block it gets covers
+only the shim, so if boot1 is ever rejected and boot0 falls back to this region
+it lands on the shim and parks rather than on a kernel.
+
+It does **not** erase a previously flashed kernel. boot1 programs only the
+blocks a UF2 actually carries and never erases the region
+(`boot1/.../usb/handlers.rs`), so old bytes stay at 0x60070000 — they are
+simply never reached, because this shim contains no jump to them.
 
 Writing the payload region is reversible: write it again. **No fuse is burnt
 until the image is actually booted.** boot1 validates the signature *before*
@@ -210,8 +216,19 @@ partition table**. A device tree is not a safe place to keep the only copy of
 that constraint, and the driver maps the whole 4 MiB array.
 
 Before mounting anything, prove the write path by hand at a known-safe offset
-inside the data partition, and prove the guard by aiming a write at offset 0
-and confirming it is refused. Only then mount JFFS2.
+inside the data partition. Then mount JFFS2.
+
+**What the guard does and does not cover.** It catches a *mis-specified
+partition table* — the partition layer translates partition-relative offsets
+into whole-device offsets before the driver sees them, so a writable partition
+wrongly placed over the boot chain hits the check. It is not reachable from
+userspace with the current device tree: `CONFIG_MTD_PARTITIONED_MASTER` is not
+set, so the master device is never exposed and the lowest partition starts at
+0x220000. Writing offset 0 of a partition therefore proves nothing — offset 0
+of `data` lands at 0x360000 and succeeds, offset 0 of `rootfs` is refused by
+its read-only flag and never reaches the check. Do not record that as the guard
+being verified. Exercise it in Renode with a deliberately bad partition offset
+if you want it proven.
 
 **If this rung goes wrong on the real chip anyway, the board is gone** — that is
 the whole reason it is last, and the reason to do it on the spare.
@@ -220,7 +237,7 @@ the whole reason it is last, and the reason to do it on the spare.
 
 | Command | Effect | Verdict |
 |---|---|---|
-| `usb_speed high` | forces high-speed enumeration | safe, use if triage found the OWC set to `full` |
+| `usb_speed high` | forces high-speed enumeration | the safest of these, but still a counter write — only if the REPL's bare `usb_speed` actually reports `Full`. A full-speed device that never answers is almost always the physical layer instead |
 | `bootwait` (arg form) | toggles auto-boot | **disabling removes your automatic recovery window**; PROG still works, but do not disable while the payload can hang |
 | `altboot` | makes boot0 prefer the payload region over boot1 | **never on a board you care about.** boot0 jumps straight into the payload — a hanging payload then leaves no REPL and no bootwait |
 | `paranoid` | aggressive glitch detectors, hardware auto-reset | **never.** False positives are documented by the vendor, and in paranoid mode `apply_attack_policy` wipes secrets and dies once `POSSIBLE_ATTACKS` passes a threshold |
@@ -244,7 +261,7 @@ was on the board when it stopped responding.
 |---|---|---|
 | Shim releases the USB SE0 pin (PC13) before handover | `firmware/bao1x-sbi/board.c` | 3 — USB survives a hang; no physical replug needed |
 | `SHIM_ONLY=1` build: run every stage, park in a heartbeat, never enter Linux | `firmware/bao1x-sbi/main.c`, `Makefile`, `tools/build-dabao-image.sh` | 3 — proves the handover with no kernel present |
-| Kernel DUART earlycon poll bounded to 10 ms | `linux/patches/v6.14/0013` | 4 — the bug that hung boot #5 |
+| Kernel DUART earlycon poll bounded by a latched spin count | `linux/patches/v6.14/0013` | 4 — the bug that hung boot #5 |
 | `earlycon=sbi`, `stdout-path = &uart2` | `linux/patches/v6.14/0022` | 4 — early output lands on the routed wire |
 | RRAM driver refuses writes below the boot chain | `linux/patches/v6.14/0021` | 5 — a wrong offset can no longer be permanent |
 | `tools/board-triage.py` | new | 0 |
