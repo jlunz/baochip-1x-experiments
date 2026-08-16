@@ -44,6 +44,12 @@ void main(void)
     uart2_init();
     mark("SBI:uart-init\r\n");
 
+    /* Do this as early as the console allows. If anything downstream wedges,
+     * the USB port is at least not left held in SE0 -- which is what made
+     * every previous hang recoverable only by physically unplugging the
+     * board. See board.c for the full rationale. */
+    se0_release();
+
     /* DTB: RRAM -> top of kernel RAM (the kernel memblock-reserves it;
      * XIP setup_vm cannot read a DTB that is outside RAM). */
     uint32_t dtb_size = (uint32_t)(_dtb_end - _dtb_start);
@@ -96,6 +102,23 @@ void main(void)
         mark("SBI:scounteren-absent\r\n");
 
     mark("SBI:csr-done\r\n");
+
+#if defined(SHIM_ONLY)
+    /* Bring-up rung: prove the shim end-to-end on a board without ever
+     * entering Linux. Everything above has run; instead of mret'ing into the
+     * kernel we park in a heartbeat so the console shows the CPU is alive and
+     * the uDMA TX path keeps draining. A board in this state is always
+     * recoverable -- PROG+RESET returns to boot1's REPL, and nothing here
+     * writes RRAM. */
+    mark("SBI:shim-only -- not entering kernel\r\n");
+    for (;;) {
+        uint64_t deadline = read_mcycle64() + HEARTBEAT_CYCLES;
+        while (read_mcycle64() < deadline)
+            ;
+        uart2_puts("SBI:alive\r\n");
+    }
+#endif
+
     duart_puts("bao1x-sbi: entering kernel at ");
     duart_puthex(KERNEL_ENTRY);
     duart_puts("\n");

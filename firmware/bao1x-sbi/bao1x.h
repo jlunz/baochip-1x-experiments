@@ -18,12 +18,17 @@
 #if defined(BOARD_dabao)
 #define TIMER0_TICKS_MULT   2u      /* TIMER0 ticks per timebase tick */
 #define UART2_CLKDIV        100u    /* ~99.8MHz perclk / 1Mbaud */
+#define CPU_HZ              350000000u
 #elif defined(BOARD_renode)
 #define TIMER0_TICKS_MULT   1u
 #define UART2_CLKDIV        100u    /* 100MHz model clock / 1Mbaud */
+#define CPU_HZ              100000000u
 #else
 #error "build with BOARD=renode or BOARD=dabao"
 #endif
+
+/* SHIM_ONLY heartbeat period, in mcycle ticks (~1s). */
+#define HEARTBEAT_CYCLES    ((uint64_t)CPU_HZ)
 
 #define MMIO32(a)       (*(volatile uint32_t *)(a))
 
@@ -57,6 +62,35 @@
  * 350MHz -- orders of magnitude beyond a 1Mbaud character time -- so a healthy
  * peripheral never reaches it, and a wedged one cannot hang the boot. */
 #define SPIN_LIMIT      2000000u
+
+/* --- IOX (pin mux + GPIO) ------------------------------------------------
+ * Per-port 16-bit words, port stride 4 bytes, PA=0 .. PF=5. The offsets are
+ * cross-checked three ways: utralib's generated bao1x register file, the
+ * vendor HAL (bao1x-hal src/iox.rs), and this port's own pinctrl driver
+ * (linux/patches/v6.14/0015). AFSEL packs eight pins per word, hence the
+ * two-level index.
+ */
+#define IOX_BASE        0x5012F000u
+#define IOX_PORT_PC     2u
+#define IOX_AFSEL(pin)  MMIO32(IOX_BASE + 0x000u + ((pin) / 16u) * 8u \
+                                                 + (((pin) % 16u) / 8u) * 4u)
+#define IOX_AFSEL_SHIFT(pin) (((pin) % 8u) * 2u)
+#define IOX_AFSEL_GPIO  0u
+#define IOX_OUT(port)   MMIO32(IOX_BASE + 0x130u + (port) * 4u)
+#define IOX_OE(port)    MMIO32(IOX_BASE + 0x148u + (port) * 4u)
+#define IOX_PU(port)    MMIO32(IOX_BASE + 0x160u + (port) * 4u)
+#define IOX_SCHM(port)  MMIO32(IOX_BASE + 0x230u + (port) * 4u)
+
+/* Dabao wires PC13 to the SE0 control of the EMS4000 USB switch, dual-purposed
+ * as the "boot update" button input. boot1's boot() drives it low (USB forced
+ * into SE0) and hands over expecting the next stage's USB stack to release it
+ * -- README-baochip: "it is up to the next USB stack to de-assert this". This
+ * port has no USB gadget yet, so the shim releases it itself; otherwise every
+ * boot leaves the port disconnected and only a physical replug restores it.
+ */
+#define SE0_PORT        IOX_PORT_PC
+#define SE0_PIN         13u
+#define SE0_PIN_INDEX   (SE0_PORT * 16u + SE0_PIN)
 
 /* --- uDMA ----------------------------------------------------------------- */
 #define UDMA_CTRL_CG    MMIO32(0x50100000u + 0x0)
@@ -129,6 +163,9 @@ void uart2_tx(const uint8_t *buf, uint32_t len);
 void uart2_puts(const char *s);
 void uart2_puthex(uint32_t v);
 int uart2_rx_byte(void);
+
+/* board.c */
+void se0_release(void);
 
 /* trap.c */
 void trap_handler(uint32_t *frame);
