@@ -10,12 +10,17 @@
 #
 # WARNING (user-approved): the first boot of a developer-signed image
 # irreversibly burns DEVELOPER_MODE on the chip and erases factory secrets.
+#
+# SHIM_ONLY=1 builds the shim so it parks in a console heartbeat instead of
+# entering Linux. That is rungs 2-3 of docs/08-recovery-and-risk-ladder.md:
+# it exercises the whole flash + handover path without ever running the kernel.
 set -euo pipefail
 
 TOP="$(cd "$(dirname "$0")/.." && pwd)"
 OUT="$TOP/build/dabao"
 XOUS="$TOP/sources/xous-core"
 SIGN="$XOUS/target/release/xous-sign-image"
+SHIM_ONLY="${SHIM_ONLY:-}"
 
 KERNEL="$TOP/build/phase3/kernel/arch/riscv/boot/xipImage"
 ROOTFS="$TOP/build/phase1/rootfs.cramfs"
@@ -28,16 +33,27 @@ LIMIT=$((0x60360000 - 0x60060300))
 
 mkdir -p "$OUT"
 
-[ -f "$KERNEL" ] || { echo "kernel missing; run emulation/renode/build-phase3.sh" >&2; exit 1; }
-[ -f "$ROOTFS" ] || { echo "rootfs missing; run emulation/qemu/build-rootfs.sh" >&2; exit 1; }
+if [ -z "$SHIM_ONLY" ]; then
+    [ -f "$KERNEL" ] || { echo "kernel missing; run emulation/renode/build-phase3.sh" >&2; exit 1; }
+    [ -f "$ROOTFS" ] || { echo "rootfs missing; run emulation/qemu/build-rootfs.sh" >&2; exit 1; }
+fi
 [ -x "$SIGN" ] || { echo "xous-sign-image missing; cargo build --release -p xous-tools --bin xous-sign-image (in sources/xous-core)" >&2; exit 1; }
+
+# --- Patch drift check ------------------------------------------------------
+# sources/linux is gitignored, so anything fixed only there is lost when the
+# working tree goes away. That has already happened once: three fixes made
+# after the first silicon session existed only in sources/linux and had to be
+# reconstructed. Refuse to build an image from a kernel tree that no longer
+# matches the committed series.
+"$TOP/tools/refresh-patches.sh" --check
 
 # --- Board DTB + shim -------------------------------------------------------
 # dabao.dts lives in the kernel tree and uses cpp-style includes.
 DTSDIR="$TOP/sources/linux/arch/riscv/boot/dts/baochip"
 cpp -nostdinc -I "$DTSDIR" -undef -x assembler-with-cpp "$DTSDIR/dabao.dts" \
     | dtc -I dts -O dtb -i "$DTSDIR" -o "$OUT/dabao.dtb"
-make -C "$TOP/firmware/bao1x-sbi" O="$OUT/sbi" BOARD=dabao DTB="$OUT/dabao.dtb"
+make -C "$TOP/firmware/bao1x-sbi" O="$OUT/sbi" BOARD=dabao DTB="$OUT/dabao.dtb" \
+    ${SHIM_ONLY:+SHIM_ONLY=1}
 
 # --- Assemble the flat payload (base = 0x60060300) --------------------------
 # Slot boundaries are not sector-aligned (the 768-byte sig block shifts
@@ -46,17 +62,30 @@ SRC="$OUT/source.bin"
 cp "$OUT/sbi/bao1x-sbi.bin" "$SRC"
 SHIM_SIZE=$(stat -c%s "$SRC")
 [ "$SHIM_SIZE" -le $KERNEL_OFF ] || { echo "shim overflows its slot" >&2; exit 1; }
-truncate -s $KERNEL_OFF "$SRC"
-cat "$KERNEL" >> "$SRC"
-TOTAL=$(stat -c%s "$SRC")
-[ "$TOTAL" -le $ROOTFS_OFF ] || { echo "kernel overflows its slot" >&2; exit 1; }
-truncate -s $ROOTFS_OFF "$SRC"
-cat "$ROOTFS" >> "$SRC"
-TOTAL=$(stat -c%s "$SRC")
-[ "$TOTAL" -le $LIMIT ] || { echo "image exceeds usable RRAM" >&2; exit 1; }
 
-# Paranoia: verify each slot before signing.
-python3 - "$SRC" "$OUT/sbi/bao1x-sbi.bin" "$KERNEL" "$ROOTFS" $KERNEL_OFF $ROOTFS_OFF <<'EOF'
+if [ -n "$SHIM_ONLY" ]; then
+    # No kernel and no rootfs in the payload at all. Besides being quick to
+    # sign and verify, this leaves nothing for boot0's fallback path to land
+    # on if boot1 is ever rejected -- the alternate boot target is the same
+    # region we are writing here.
+    python3 - "$SRC" "$OUT/sbi/bao1x-sbi.bin" <<'EOF'
+import sys
+src, shim = (open(f, 'rb').read() for f in sys.argv[1:3])
+assert src == shim, "shim slot corrupt"
+print("slot check OK (shim-only): shim %d bytes" % len(shim))
+EOF
+else
+    truncate -s $KERNEL_OFF "$SRC"
+    cat "$KERNEL" >> "$SRC"
+    TOTAL=$(stat -c%s "$SRC")
+    [ "$TOTAL" -le $ROOTFS_OFF ] || { echo "kernel overflows its slot" >&2; exit 1; }
+    truncate -s $ROOTFS_OFF "$SRC"
+    cat "$ROOTFS" >> "$SRC"
+    TOTAL=$(stat -c%s "$SRC")
+    [ "$TOTAL" -le $LIMIT ] || { echo "image exceeds usable RRAM" >&2; exit 1; }
+
+    # Paranoia: verify each slot before signing.
+    python3 - "$SRC" "$OUT/sbi/bao1x-sbi.bin" "$KERNEL" "$ROOTFS" $KERNEL_OFF $ROOTFS_OFF <<'EOF'
 import sys
 src, shim, kernel, rootfs = (open(f, 'rb').read() for f in sys.argv[1:5])
 koff, roff = int(sys.argv[5]), int(sys.argv[6])
@@ -66,6 +95,7 @@ assert src[roff:roff+len(rootfs)] == rootfs, "rootfs slot corrupt"
 print("slot check OK: shim %d, kernel %d @0x%x, rootfs %d @0x%x"
       % (len(shim), len(kernel), koff, len(rootfs), roff))
 EOF
+fi
 
 # --- Sign (developer key; sig block prepended -> image at 0x60060000) -------
 # anti-rollback comes from signing/anti-rollback.hjson via the xous-core cwd.
@@ -81,10 +111,18 @@ EOF
 # --- UF2 ---------------------------------------------------------------------
 # xous-sign-image already emits flash.uf2; regenerate independently with
 # mkuf2.py and require both to agree (cross-checks tool and layout).
-python3 "$TOP/tools/mkuf2.py" "$OUT/flash.bin" "$OUT/dabao-linux.uf2" --base 0x60060000
-cmp "$OUT/flash.uf2" "$OUT/dabao-linux.uf2" || { echo "UF2 mismatch vs vendor tool!" >&2; exit 1; }
+# Distinct names, because the two images are indistinguishable once copied
+# onto the board and only one of them can reach Linux.
+if [ -n "$SHIM_ONLY" ]; then UF2="$OUT/dabao-shim-only.uf2"; else UF2="$OUT/dabao-linux.uf2"; fi
+python3 "$TOP/tools/mkuf2.py" "$OUT/flash.bin" "$UF2" --base 0x60060000
+cmp "$OUT/flash.uf2" "$UF2" || { echo "UF2 mismatch vs vendor tool!" >&2; exit 1; }
 
 echo "=== dabao image complete ==="
-ls -la "$OUT/flash.bin" "$OUT/dabao-linux.uf2"
-echo "flash: copy dabao-linux.uf2 to the BAOCHIP mass-storage volume (boot1),"
+ls -la "$OUT/flash.bin" "$UF2"
+md5sum "$UF2"     # record this in the bring-up log with the boot it produced
+echo "flash: copy $(basename "$UF2") to the BAOCHIP mass-storage volume (boot1),"
 echo "       or stream with sources/xous-core/bao1x-boot/uf2send.py over the boot1 console."
+if [ -n "$SHIM_ONLY" ]; then
+    echo "NOTE: shim-only image -- it will NOT boot Linux. Expect the SBI:* stage"
+    echo "      markers, then 'SBI:shim-only' and a 1Hz 'SBI:alive' heartbeat."
+fi
