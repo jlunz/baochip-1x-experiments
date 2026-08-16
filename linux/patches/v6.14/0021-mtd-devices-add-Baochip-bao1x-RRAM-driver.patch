@@ -19,12 +19,18 @@ in place; erase is emulated by writing 0xFF for the benefit of flash
 filesystems. Only the DT partitions are exposed, which keeps the boot
 chain regions and the vendor secrets area unreachable.
 
+Writes below the end of the boot chain are additionally refused by the
+driver itself, without consulting the partition table: the first stage
+is immutable and the second is signed, so a stray write there cannot be
+undone from software, and a device tree is not a safe place to encode
+the only copy of that constraint.
+
 Co-developed-by: Claude <noreply@anthropic.com>
 ---
  drivers/mtd/devices/Kconfig      |  10 ++
  drivers/mtd/devices/Makefile     |   1 +
- drivers/mtd/devices/bao1x-rram.c | 232 +++++++++++++++++++++++++++++++
- 3 files changed, 243 insertions(+)
+ drivers/mtd/devices/bao1x-rram.c | 254 +++++++++++++++++++++++++++++++
+ 3 files changed, 265 insertions(+)
  create mode 100644 drivers/mtd/devices/bao1x-rram.c
 
 diff --git a/drivers/mtd/devices/Kconfig b/drivers/mtd/devices/Kconfig
@@ -62,10 +68,10 @@ index d11eb2b8b..b44008090 100644
  obj-$(CONFIG_MTD_MTDRAM)	+= mtdram.o
 diff --git a/drivers/mtd/devices/bao1x-rram.c b/drivers/mtd/devices/bao1x-rram.c
 new file mode 100644
-index 000000000..8d4f308e5
+index 000000000..a39d99b33
 --- /dev/null
 +++ b/drivers/mtd/devices/bao1x-rram.c
-@@ -0,0 +1,232 @@
+@@ -0,0 +1,254 @@
 +// SPDX-License-Identifier: GPL-2.0
 +/*
 + * Baochip bao1x RRAM MTD driver.
@@ -84,6 +90,13 @@ index 000000000..8d4f308e5
 + * provided so cramfs can XIP userspace text directly from the array.
 + * There is no erase in RRAM; erase is emulated by writing 0xFF so that
 + * flash filesystems can be used on a partition.
++ *
++ * The bottom of the array holds the SoC's immutable first-stage loader
++ * and the signed second stage; the boot ROM refuses to start if either
++ * fails to validate, and neither can be reprogrammed from a running
++ * system. That is a property of the SoC, not of any board, so the write
++ * path enforces it here rather than trusting a device tree to describe
++ * the partitions correctly. Anything else is a permanent brick.
 + *
 + * Co-developed-by: Claude <noreply@anthropic.com>
 + */
@@ -106,6 +119,13 @@ index 000000000..8d4f308e5
 +
 +#define MAGIC_LOAD	0x5200
 +#define MAGIC_WRITE	0x9528
++
++/*
++ * Offset of the first byte in the array that a running system may write:
++ * everything below is the boot chain (first stage at 0, signed second
++ * stage at 0x20000, payload from 0x60000).
++ */
++#define RRAM_BOOTCHAIN_END	0x60000
 +
 +struct bao1x_rram {
 +	struct mtd_info	mtd;
@@ -149,6 +169,13 @@ index 000000000..8d4f308e5
 +				  int fill_byte)
 +{
 +	u32 line[RRAM_LINE / 4];
++
++	if (to < RRAM_BOOTCHAIN_END) {
++		dev_err(rram->mtd.dev.parent,
++			"refusing write at 0x%llx: boot chain is below 0x%x\n",
++			to, RRAM_BOOTCHAIN_END);
++		return -EROFS;
++	}
 +
 +	mutex_lock(&rram->lock);
 +	while (len) {
@@ -203,6 +230,7 @@ index 000000000..8d4f308e5
 +	return bao1x_rram_write_range(rram, instr->addr, instr->len, NULL,
 +				      0xff);
 +}
++
 +
 +static int bao1x_rram_point(struct mtd_info *mtd, loff_t from, size_t len,
 +			    size_t *retlen, void **virt, resource_size_t *phys)
@@ -298,6 +326,3 @@ index 000000000..8d4f308e5
 +
 +MODULE_DESCRIPTION("Baochip bao1x RRAM MTD driver");
 +MODULE_LICENSE("GPL");
--- 
-2.55.0
-

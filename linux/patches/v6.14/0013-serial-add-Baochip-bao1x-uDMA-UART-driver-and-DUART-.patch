@@ -13,19 +13,23 @@ bounces transmit data through it chunk-wise, driven by the "tx done"
 event; receive is interrupt-driven PIO. Both events arrive through the
 bao1x IRQARRAY bank 5. Console writes transmit synchronously.
 
-The SoC also has a trivial four-register TX-only debug UART (DUART)
-that needs no clock or pin configuration; it is exposed as earlycon
-only ("earlycon" with stdout-path or earlycon=bao1x_duart) since it
-has no receiver.
+The SoC also has a trivial four-register TX-only debug UART (DUART),
+exposed as earlycon only ("earlycon" with stdout-path or
+earlycon=bao1x_duart) since it has no receiver. Its transmit poll is
+bounded: the baud divider SFR_ETUC resets to 0 and no boot stage is
+required to program it, so the busy flag can be stuck set, and a board
+need not route the pad at all (the Dabao brings out no DUART net).
+Dropping earlycon characters is preferable to hanging the boot on a
+debug pad that may not exist.
 
 Co-developed-by: Claude <noreply@anthropic.com>
 ---
  drivers/tty/serial/Kconfig       |  24 ++
  drivers/tty/serial/Makefile      |   2 +
- drivers/tty/serial/bao1x_duart.c |  52 ++++
+ drivers/tty/serial/bao1x_duart.c |  69 +++++
  drivers/tty/serial/bao1x_uart.c  | 457 +++++++++++++++++++++++++++++++
  include/uapi/linux/serial_core.h |   3 +
- 5 files changed, 538 insertions(+)
+ 5 files changed, 555 insertions(+)
  create mode 100644 drivers/tty/serial/bao1x_duart.c
  create mode 100644 drivers/tty/serial/bao1x_uart.c
 
@@ -79,24 +83,32 @@ index 6ff74f0a9..7738fc06e 100644
  obj-$(CONFIG_SERIAL_MAX3100)		+= max3100.o
 diff --git a/drivers/tty/serial/bao1x_duart.c b/drivers/tty/serial/bao1x_duart.c
 new file mode 100644
-index 000000000..6b175d9ec
+index 000000000..f70963fa0
 --- /dev/null
 +++ b/drivers/tty/serial/bao1x_duart.c
-@@ -0,0 +1,52 @@
+@@ -0,0 +1,69 @@
 +// SPDX-License-Identifier: GPL-2.0
 +/*
 + * Baochip bao1x DUART earlycon.
 + *
-+ * The DUART is a four-register, TX-only debug UART that works with no
-+ * clock or pin setup at all, which makes it the earliest possible sign
-+ * of life on this SoC: earlycon output needs nothing but these MMIO
-+ * writes. There is deliberately no full uart driver: the device has no
-+ * receiver, the real console is the uDMA UART.
++ * The DUART is a four-register, TX-only debug UART, which makes it the
++ * earliest possible sign of life on this SoC: earlycon output needs
++ * nothing but these MMIO writes. There is deliberately no full uart
++ * driver: the device has no receiver, the real console is the uDMA UART.
++ *
++ * The transmitter is not guaranteed to be usable, though. SFR_ETUC (the
++ * baud divider) resets to 0 and no boot stage is required to program it;
++ * with a zero divider the shifter never drains and DUART_SR_BUSY never
++ * clears. Worse, boards need not route the pad anywhere at all -- the
++ * Dabao brings out no DUART net. So every wait here is bounded: dropping
++ * earlycon characters is survivable, wedging the boot before the real
++ * console registers is not.
 + *
 + * Co-developed-by: Claude <noreply@anthropic.com>
 + */
 +
 +#include <linux/console.h>
++#include <linux/delay.h>
 +#include <linux/io.h>
 +#include <linux/serial_core.h>
 +
@@ -107,10 +119,19 @@ index 000000000..6b175d9ec
 +#define DUART_CR_EN	BIT(0)
 +#define DUART_SR_BUSY	BIT(0)
 +
++/* Far longer than a character time at any plausible divider, so a working
++ * DUART never reaches it. */
++#define DUART_TX_TIMEOUT_US	10000
++
 +static void bao1x_duart_putc(struct uart_port *port, unsigned char ch)
 +{
-+	while (readl_relaxed(port->membase + DUART_SR) & DUART_SR_BUSY)
-+		cpu_relax();
++	unsigned int timeout = DUART_TX_TIMEOUT_US;
++
++	while (readl_relaxed(port->membase + DUART_SR) & DUART_SR_BUSY) {
++		if (!timeout--)
++			return;
++		udelay(1);
++	}
 +	writel_relaxed(ch, port->membase + DUART_TXD);
 +}
 +

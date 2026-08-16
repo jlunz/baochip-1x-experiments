@@ -11,9 +11,9 @@ transmit-only debug UART used as earlycon.
 
 Co-developed-by: Claude <noreply@anthropic.com>
 ---
- .../bindings/serial/baochip,bao1x-duart.yaml  | 35 ++++++++++
+ .../bindings/serial/baochip,bao1x-duart.yaml  | 37 ++++++++++
  .../serial/baochip,bao1x-udma-uart.yaml       | 70 +++++++++++++++++++
- 2 files changed, 105 insertions(+)
+ 2 files changed, 107 insertions(+)
  create mode 100644 Documentation/devicetree/bindings/serial/baochip,bao1x-duart.yaml
  create mode 100644 Documentation/devicetree/bindings/serial/baochip,bao1x-udma-uart.yaml
 
@@ -22,7 +22,7 @@ new file mode 100644
 index 000000000..96467a27c
 --- /dev/null
 +++ b/Documentation/devicetree/bindings/serial/baochip,bao1x-duart.yaml
-@@ -0,0 +1,35 @@
+@@ -0,0 +1,37 @@
 +# SPDX-License-Identifier: (GPL-2.0-only OR BSD-2-Clause)
 +%YAML 1.2
 +---
@@ -32,9 +32,11 @@ index 000000000..96467a27c
 +title: Baochip bao1x DUART debug transmitter
 +
 +description:
-+  Four-register, transmit-only debug UART on the Baochip bao1x SoC. It
-+  needs no clock or pin configuration and is used as earlycon; there is no
-+  receive direction, so no full serial driver binds to it.
++  Four-register, transmit-only debug UART on the Baochip bao1x SoC, used
++  as earlycon. There is no receive direction, so no full serial driver
++  binds to it. The transmitter has no clock or pin configuration of its
++  own, but its baud divider resets to zero and boards need not route the
++  pad, so a consumer must not assume it can ever complete a character.
 +
 +maintainers:
 +  - Julian Lunz <julianlunz+claude@proton.me>

@@ -22,9 +22,9 @@ Co-developed-by: Claude <noreply@anthropic.com>
  arch/riscv/boot/dts/Makefile                  |   1 +
  arch/riscv/boot/dts/baochip/Makefile          |   2 +
  arch/riscv/boot/dts/baochip/bao1x.dtsi        | 173 ++++++++++++++++++++
- arch/riscv/boot/dts/baochip/dabao.dts         |  59 +++++++
+ arch/riscv/boot/dts/baochip/dabao.dts         |  68 +++++++
  arch/riscv/configs/baochip_dabao_defconfig    | 102 +++++++++++
- 8 files changed, 361 insertions(+)
+ 8 files changed, 370 insertions(+)
  create mode 100644 arch/riscv/boot/dts/baochip/Makefile
  create mode 100644 arch/riscv/boot/dts/baochip/bao1x.dtsi
  create mode 100644 arch/riscv/boot/dts/baochip/dabao.dts
@@ -286,10 +286,10 @@ index 000000000..bfaa0cc8b
 +};
 diff --git a/arch/riscv/boot/dts/baochip/dabao.dts b/arch/riscv/boot/dts/baochip/dabao.dts
 new file mode 100644
-index 000000000..99cbe5ff1
+index 000000000..44a253f8b
 --- /dev/null
 +++ b/arch/riscv/boot/dts/baochip/dabao.dts
-@@ -0,0 +1,59 @@
+@@ -0,0 +1,68 @@
 +/*
 + * Dabao evaluation board (Baochip bao1x silicon).
 + *
@@ -314,8 +314,17 @@ index 000000000..99cbe5ff1
 +	};
 +
 +	chosen {
-+		bootargs = "earlycon console=ttyBAO0 root=mtd:rootfs rootfstype=cramfs ro";
-+		stdout-path = &duart;
++		/*
++		 * earlycon=sbi, not the DUART: bao1x-sbi routes the SBI
++		 * debug console onto this same UART2, so the earliest
++		 * kernel output and the ttyBAO0 console land on the one
++		 * wire the board actually brings out. The DUART earlycon
++		 * is a trap here -- Dabao routes no DUART pad, and its
++		 * baud divider is left at zero, so it can never complete
++		 * a character.
++		 */
++		bootargs = "earlycon=sbi console=ttyBAO0 root=mtd:rootfs rootfstype=cramfs ro";
++		stdout-path = &uart2;
 +	};
 +
 +	cpus {
