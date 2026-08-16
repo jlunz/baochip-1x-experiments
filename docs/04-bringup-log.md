@@ -661,3 +661,72 @@ triage; a board showing boot1 but not boot0 was reported as unrecognised; and
 the stage table was missing every marker this series added. Captures are now
 saved under `build/hw/`, since the point of running it on a healthy board is to
 keep the baseline.
+
+## 2026-08-16 (cont.) — register-correctness pass against the RTL and board files
+
+Done on the dev host, which carries `sources/baochip-1x` (the RTL) and
+`sources/dabao` (the KiCad files) — ground truth the previous machine did not
+have. No hardware touched.
+
+### Every IOX address the shim uses is confirmed
+
+Checked against the RTL's own generated register map
+(`rtl/scripts/headergen/output/doc/iox.rst`), not against the HAL:
+
+| Shim macro (PC13) | Address | RTL register |
+|---|---|---|
+| `IOX_AFSEL(45)` | `0x5012f014` | `SFR_AFSEL_CRAFSEL5` |
+| `IOX_OUT(PC)` | `0x5012f138` | `SFR_GPIOOUT_CRGO2` |
+| `IOX_OE(PC)` | `0x5012f150` | `SFR_GPIOOE_CRGOE2` |
+| `IOX_PU(PC)` | `0x5012f168` | `SFR_GPIOPU_CRGPU2` |
+| `IOX_SCHM(PC)` | `0x5012f238` | `SFR_CFG_SCHM_CR_CFG_SCHMSEL2` |
+
+`iox.sv:157-159` derives those bases as `'h130 + GPIOSFRC*n*4` with
+`GPIOSFRC = IOC/16 = 6`, which is where the 4-byte port stride and the six
+ports come from; twelve `CRAFSEL` words = 6 ports x 2, confirming the
+`(pin/8)*4` AFSEL index.
+
+**Polarity is straight through** — `wire2ioif_rev`
+(`rtl/modules/common/rtl/io_interface_def.sv:122-124`) assigns
+`ioifdrv.oe = iooe` and `ioifdrv.pu = iopu` with no inversion, and the HAL
+enums agree (`IoxDir::Output = 1`, `IoxEnable::Enable = 1`, `IoxValue::High = 1`).
+So `OE &= ~bit` really is "make it an input" and `PU |= bit` really is
+"pull-up on".
+
+Worth recording: `sfr_gpiopu` is declared with `.IV(16'hffff)` — **the pull-up
+register resets to all-ones**, while `sfr_gpiooe` resets to 0. So out of reset
+every pin is an input with its pull-up engaged, which is what makes PC13 float
+high and reconnect USB after a reset. Note the shim does not depend on absolute
+polarity anyway: it mirrors boot1's own `setup_dabao_boot_pin()` call sequence,
+so it is correct relative to the code the board already boots with.
+
+### The SHIM_ONLY heartbeat bound was inert (defect, now fixed)
+
+The previous round added `SPIN_LIMIT` to the heartbeat's inner wait to satisfy
+a review finding about unbounded loops. The two numbers are incompatible:
+`HEARTBEAT_CYCLES` is 350,000,000 cycles, while `SPIN_LIMIT` is 2,000,000
+iterations of a `read_mcycle64()` call. Simulated on the host:
+
+| Build | Exits via | After | Actual rate |
+|---|---|---|---|
+| dabao (1.00 s intended) | `SPIN_LIMIT` | 0.086 s | **11.7 Hz** |
+| renode (1.00 s intended) | `SPIN_LIMIT` | 0.300 s | **3.3 Hz** |
+
+Even at an optimistic 4 cycles per read it expires in 0.023 s. The deadline was
+never reachable, so the documented "1 Hz" was wrong on both platforms and the
+guard could not distinguish a working counter from a frozen one — it took the
+same exit either way.
+
+Fixed by bounding the *counter* rather than the period: sample mcycle once, and
+only give up if it has not advanced at all after `SPIN_LIMIT` reads. Simulated
+both paths — a live counter now exits on the deadline, a frozen one on the
+stall limit, and both terminate.
+
+**Lesson, and it is the same one as the emulation blind spots:** a bound added
+to satisfy a review is itself untested code. This one was accepted because it
+looked like the surrounding `SPIN_LIMIT` idiom, and the idiom is right for a
+peripheral poll that should complete in microseconds — not for a wait that is
+deliberately a second long.
+
+Not rebuilt: this host has no `riscv64-*-gcc` (only `qemu-riscv*-static`), so
+the change is verified by host simulation and inspection, not by a cross build.

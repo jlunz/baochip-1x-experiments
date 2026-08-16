@@ -119,18 +119,30 @@ void main(void)
      * recoverable -- PROG+RESET returns to boot1's REPL, and nothing here
      * writes RRAM.
      *
-     * The delay is bounded by an iteration count as well as by mcycle, on the
-     * same principle as every other wait in the shim: this core is already
-     * known not to implement mcounteren, so its counters are not something to
-     * assume. A stalled mcycle degrades this to a fast heartbeat -- still a
-     * clear sign of life -- rather than to silence, which is the one outcome
-     * this rung exists to rule out. */
+     * The wait is bounded on the *counter*, not on the period. A plain
+     * iteration cap does not work here: one heartbeat is ~1s of cycles, which
+     * is far more iterations than any sane cap, so the cap would expire first
+     * every time and every heartbeat would be a fast one -- flooding the
+     * console that the stage markers have to be read from. Instead, watch for
+     * mcycle failing to advance at all: this core is already known not to
+     * implement mcounteren, so its counters are not something to assume. A
+     * frozen counter then degrades this to a fast heartbeat -- still a clear
+     * sign of life -- rather than to silence, which is the one outcome this
+     * rung exists to rule out. */
     mark("SBI:shim-only -- not entering kernel\r\n");
     for (;;) {
-        uint64_t deadline = read_mcycle64() + HEARTBEAT_CYCLES;
-        for (uint32_t spin = 0; spin < SPIN_LIMIT; spin++) {
-            if (read_mcycle64() >= deadline)
+        uint64_t start = read_mcycle64();
+        uint64_t deadline = start + HEARTBEAT_CYCLES;
+        uint32_t stalled = 0;
+
+        for (;;) {
+            uint64_t now = read_mcycle64();
+            if (now >= deadline)
                 break;
+            if (now != start)
+                stalled = 0;            /* advancing: the deadline will arrive */
+            else if (++stalled >= SPIN_LIMIT)
+                break;                  /* frozen: stop waiting on it */
         }
         mark("SBI:alive\r\n");
     }
