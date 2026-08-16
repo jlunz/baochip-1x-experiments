@@ -39,6 +39,17 @@ extern uint8_t __mstack_top[];
 void main(void)
 {
     mark("SBI:entry\r\n");
+
+    /* Give traps a usable stack before touching anything else. entry.S parks
+     * mscratch at 0 as its "in M-mode" marker, and trap_entry swaps sp with
+     * mscratch unconditionally -- so with mscratch still 0 any trap hands the
+     * handler sp = 0, it dies on its first store, and the shim simply vanishes
+     * with no marker and no report. That applies to peripheral MMIO just as
+     * much as to CSR writes, and everything below is one or the other, so it
+     * is set here rather than further down. Nothing reads the 0 convention;
+     * trap_handler identifies M-mode traps from mstatus.MPP. */
+    csr_write(mscratch, (uint32_t)__mstack_top);
+
     duart_puts("\nbao1x-sbi: M-mode SBI shim\n");
     mark("SBI:duart-ok\r\n");
     uart2_init();
@@ -64,14 +75,11 @@ void main(void)
         dst[i] = src[i];
     mark("SBI:dtb-copied\r\n");
 
-    /* Give traps a usable stack *before* touching any CSR. A CSR this silicon
-     * does not implement traps as an illegal instruction, and with mscratch
-     * still 0 (entry.S's "in M-mode" marker) trap_entry would hand the handler
-     * sp = 0 and die on its first store -- the shim would simply vanish. With
-     * this set, trap_handler can report the offending mepc instead. */
-    csr_write(mscratch, (uint32_t)__mstack_top);
-
-    /* Written one at a time with markers: any of these can be absent on a
+    /* mscratch already holds the M-stack (set at the top of main), so a CSR
+     * this silicon does not implement traps as an illegal instruction and
+     * trap_handler can report the offending mepc instead of vanishing.
+     *
+     * Written one at a time with markers: any of these can be absent on a
      * given VexRiscv configuration, and Renode implements them all, so
      * emulation cannot tell us which. */
     csr_write(medeleg, MEDELEG_MASK);      mark("SBI:medeleg\r\n");
@@ -109,16 +117,24 @@ void main(void)
      * kernel we park in a heartbeat so the console shows the CPU is alive and
      * the uDMA TX path keeps draining. A board in this state is always
      * recoverable -- PROG+RESET returns to boot1's REPL, and nothing here
-     * writes RRAM. */
+     * writes RRAM.
+     *
+     * The delay is bounded by an iteration count as well as by mcycle, on the
+     * same principle as every other wait in the shim: this core is already
+     * known not to implement mcounteren, so its counters are not something to
+     * assume. A stalled mcycle degrades this to a fast heartbeat -- still a
+     * clear sign of life -- rather than to silence, which is the one outcome
+     * this rung exists to rule out. */
     mark("SBI:shim-only -- not entering kernel\r\n");
     for (;;) {
         uint64_t deadline = read_mcycle64() + HEARTBEAT_CYCLES;
-        while (read_mcycle64() < deadline)
-            ;
-        uart2_puts("SBI:alive\r\n");
+        for (uint32_t spin = 0; spin < SPIN_LIMIT; spin++) {
+            if (read_mcycle64() >= deadline)
+                break;
+        }
+        mark("SBI:alive\r\n");
     }
-#endif
-
+#else
     duart_puts("bao1x-sbi: entering kernel at ");
     duart_puthex(KERNEL_ENTRY);
     duart_puts("\n");
@@ -127,7 +143,6 @@ void main(void)
     static const char banner[] = "bao1x-sbi: jumping to kernel\r\n";
     uart2_tx((const uint8_t *)banner, sizeof(banner) - 1);
 
-    /* mscratch already holds the M-stack (set before the CSR block above). */
     uint32_t ms = csr_read(mstatus);
     ms &= ~((3u << 11) | MSTATUS_MPIE);     /* MPP=0, MPIE=0 */
     ms |= MSTATUS_MPP_S;                    /* MPP=S */
@@ -138,4 +153,5 @@ void main(void)
     register uint32_t a1 __asm__("a1") = DTB_DEST;      /* dtb PA */
     __asm__ volatile("fence.i\n\tmret" :: "r"(a0), "r"(a1));
     __builtin_unreachable();
+#endif /* SHIM_ONLY */
 }

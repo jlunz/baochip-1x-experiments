@@ -72,10 +72,9 @@
  */
 #define IOX_BASE        0x5012F000u
 #define IOX_PORT_PC     2u
-#define IOX_AFSEL(pin)  MMIO32(IOX_BASE + 0x000u + ((pin) / 16u) * 8u \
-                                                 + (((pin) % 16u) / 8u) * 4u)
+/* AFSEL packs eight pins per 32-bit word, two words per port. */
+#define IOX_AFSEL(pin)  MMIO32(IOX_BASE + 0x000u + ((pin) / 8u) * 4u)
 #define IOX_AFSEL_SHIFT(pin) (((pin) % 8u) * 2u)
-#define IOX_AFSEL_GPIO  0u
 #define IOX_OUT(port)   MMIO32(IOX_BASE + 0x130u + (port) * 4u)
 #define IOX_OE(port)    MMIO32(IOX_BASE + 0x148u + (port) * 4u)
 #define IOX_PU(port)    MMIO32(IOX_BASE + 0x160u + (port) * 4u)

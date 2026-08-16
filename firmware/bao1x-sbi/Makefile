@@ -26,10 +26,21 @@ all: $(O)/bao1x-sbi.elf $(O)/bao1x-sbi.bin
 $(O):
 	mkdir -p $@
 
-$(O)/entry.o: entry.S bao1x.h $(DTB) | $(O)
+# BOARD and SHIM_ONLY select entirely different code, but make sees only .c
+# timestamps -- and build-dabao-image.sh reuses one O= directory for both
+# modes. Without this, a shim-only build followed by a full build relinks the
+# stale main.o and produces an image labelled "will not boot Linux" that mret's
+# into an address the shim-only payload never wrote. Objects therefore depend
+# on a stamp holding the flags, rewritten only when they actually change.
+CONFIG_SIG := $(CFLAGS) DTB=$(DTB)
+$(O)/.config-sig: FORCE | $(O)
+	@printf '%s\n' '$(CONFIG_SIG)' | cmp -s - $@ 2>/dev/null || \
+		printf '%s\n' '$(CONFIG_SIG)' > $@
+
+$(O)/entry.o: entry.S bao1x.h $(DTB) $(O)/.config-sig | $(O)
 	$(CROSS)gcc $(CFLAGS) -DDTB_PATH='"$(DTB)"' -c $< -o $@
 
-$(O)/%.o: %.c bao1x.h | $(O)
+$(O)/%.o: %.c bao1x.h $(O)/.config-sig | $(O)
 	$(CROSS)gcc $(CFLAGS) -c $< -o $@
 
 $(O)/bao1x-sbi.elf: $(OBJS) bao1x-sbi.ld
@@ -42,4 +53,6 @@ $(O)/bao1x-sbi.bin: $(O)/bao1x-sbi.elf
 clean:
 	rm -rf $(O)
 
-.PHONY: all clean
+FORCE:
+
+.PHONY: all clean FORCE

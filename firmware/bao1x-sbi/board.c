@@ -35,11 +35,10 @@ void se0_release(void)
 #if defined(BOARD_dabao)
     const uint32_t bit = 1u << SE0_PIN;
 
-    /* Pin function back to plain GPIO (boot1 already leaves it there; make it
-     * explicit so this does not depend on the handover state). */
-    IOX_AFSEL(SE0_PIN_INDEX) =
-        (IOX_AFSEL(SE0_PIN_INDEX) & ~(0x3u << IOX_AFSEL_SHIFT(SE0_PIN_INDEX))) |
-        (IOX_AFSEL_GPIO << IOX_AFSEL_SHIFT(SE0_PIN_INDEX));
+    /* Pin function back to plain GPIO, which is encoding 0 (boot1 already
+     * leaves it there; make it explicit so this does not depend on the
+     * handover state). */
+    IOX_AFSEL(SE0_PIN_INDEX) &= ~(0x3u << IOX_AFSEL_SHIFT(SE0_PIN_INDEX));
 
     IOX_OUT(SE0_PORT)  |= bit;      /* drive high: de-assert SE0        */
     IOX_PU(SE0_PORT)   |= bit;      /* pull-up, so releasing holds high */
