@@ -489,3 +489,89 @@ from "board unpowered" with the physical RESET button and a multimeter on
 pin 36 (3V3) / pin 40 (VBUS) against GND. The kernel itself has not yet
 printed anything; with `earlycon=sbi` now in place its first output should
 arrive over the shim's DBCN on UART2, so the next boot is the real test.
+
+## 2026-08-16 — reconstructing the lost fixes; recovery analysis
+
+No hardware this session. The board from 2026-08-07 is still unresponsive; the
+new observation from the user is that a reset now brings up a **full-speed USB
+device** that never completes enumeration. Work here is (a) reading the vendor
+boot chain to decide whether the board can be recovered at all, and (b) putting
+back the fixes that were never committed.
+
+### The repo was in a worse state than the log claimed
+
+`HEAD` was byte-identical to `hw/flashed-06412a3b` — the exact image the board
+died running. Three fixes written up in the previous entry existed only in
+`sources/linux` and `build/`, both gitignored, and went away with the
+container:
+
+- the kernel's DUART earlycon still had the unbounded `DUART_SR_BUSY` spin
+- `dabao.dts` still had `earlycon` + `stdout-path = &duart`
+- the SE0 release (`SBI:se0-released`, md5 `105b5045`) was nowhere in the shim
+
+All three are now committed, and `tools/refresh-patches.sh --check` runs from
+`build-dabao-image.sh` so a kernel tree that has drifted from the series cannot
+produce an image.
+
+### What actually happened on boot #5
+
+With `earlycon` and `stdout-path = &duart`, the kernel's *first* action after
+`mret` is `bao1x_duart_early_write` — the same unbounded-poll bug class already
+proven fatal on this silicon in the shim (Bug 1, previous entry). Boot #5 
+almost certainly parked the CPU in a tight S-mode poll on its first `printk`,
+which is exactly why the kernel printed nothing.
+
+That is the reassuring reading: it hung *before* the MTD probe, so it never
+wrote RRAM. Combined with `ifr_0x280.bin` write-protecting boot0 from user
+code, and boot1 range-checking every UF2 write, nothing we did is persistent
+across a reset. The DEVELOPER_MODE burn is the only permanent change, and it
+does not prevent booting.
+
+### Why the board can be silent without being damaged
+
+`libs/bao1x-hal/src/sigcheck.rs:892` — `die_no_std()` zeroizes the backup
+registers, AORAM, key regions, SCE_MEM, IFRAM, **UDC_MEM**, BIO_MEM and all
+2 MiB of SRAM, then emits 256 `'X'` **on the DUART**, then hangs in an unrolled
+jump loop. Dabao routes no DUART. A security abort here is therefore silent,
+survives every reset, and is indistinguishable from an unpowered chip over both
+USB and UART.
+
+Several triggers sit *before* boot0 switches its console to UART2
+(`boot0/src/platform/bao1x/bao1x.rs:227`): the TRNG stuck-value check, the
+SHA-512 KAT, `init_clock_asic_350mhz()`, paranoid-mode voltage sensors. Those
+are power- and clock-integrity checks, and a marginal supply trips them
+deterministically — which fits a board whose USB had degraded to full-speed
+hours before it went quiet.
+
+### Recovery verdict
+
+Recoverable unless boot0 itself is dying. JTAG is fused off
+(`boot1/src/secboot.rs:43` checks the IFR for exactly that), and boot0 is
+immutable, so there is no debug-port rescue — but `bootwait` is enabled,
+PROG+RESET forces the REPL, and boot1's REPL reads the UART whenever USB is not
+`Configured`, so a broken USB does not block reflashing. Full procedure and
+ordering in `08-recovery-and-risk-ladder.md`.
+
+### Changes made
+
+- `firmware/bao1x-sbi/board.c`: release PC13 before handover, mirroring boot1's
+  `setup_dabao_boot_pin()` (GPIO, drive high, pull-up + schmitt, then release to
+  input, so the pin never floats). Verified in the disassembly against the IOX
+  map: AFSEL `0x5012f014` bits [11:10], OUT `0x5012f138`, PU `0x5012f168`,
+  SCHM `0x5012f238`, OE `0x5012f150`, bit 13. No-op on `BOARD=renode` — the
+  function compiles to a bare `ret`, so the green robot platform is untouched.
+- `SHIM_ONLY=1`: shim runs every stage then parks in a 1 Hz `SBI:alive`
+  heartbeat. `build-dabao-image.sh` builds a payload with **no kernel and no
+  rootfs** in that mode, so boot0's fallback path has nothing to land on.
+- kernel DUART earlycon bounded to 10 ms; the binding text that claimed the
+  DUART "needs no clock or pin configuration" corrected.
+- `dabao.dts`: `earlycon=sbi`, `stdout-path = &uart2`.
+- `bao1x-rram.c`: refuse writes/erases below array offset `0x60000` with
+  `-EROFS`, without consulting the partition table.
+- `tools/board-triage.py` (read-only liveness check),
+  `tools/refresh-patches.sh` (+ `--check` wired into the image build).
+
+Shim builds clean for `BOARD=dabao`, `BOARD=dabao SHIM_ONLY=1` and
+`BOARD=renode` with `-Wall -Wextra`; all 22 patches pass a hunk-count audit.
+**None of it has run on silicon** — the kernel patches could not even be
+compile-tested here, since `sources/linux` is not present in this container.

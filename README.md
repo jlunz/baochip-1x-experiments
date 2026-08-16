@@ -18,7 +18,7 @@ build glue to change that — with all kernel work kept upstream-quality.
 
 | Path         | Contents                                                          |
 |--------------|-------------------------------------------------------------------|
-| `docs/`      | Hardware dossier, port design, emulation notes, bring-up log      |
+| `docs/`      | Hardware dossier, port design, emulation notes, bring-up log, recovery ladder |
 | `setup/`     | Reproducible environment setup (`install-tools.sh`, `fetch-sources.sh`) |
 | `emulation/` | Renode platform for bao1x (`.repl`, peripheral models, run scripts) |
 | `firmware/`  | `bao1x-sbi`: tiny M-mode SBI shim that boots the S-mode kernel    |
@@ -37,19 +37,23 @@ build glue to change that — with all kernel work kept upstream-quality.
 Then see **`docs/03-status-and-resume.md`** — the entry point for picking up the
 work: phase status, rebuild commands, architecture summary, next steps, and
 accumulated gotchas. `docs/00-overview.md` has the plan; `docs/04-bringup-log.md`
-is the lab notebook with all evidence.
+is the lab notebook with all evidence. Before putting anything on a board, read
+`docs/08-recovery-and-risk-ladder.md`.
 
-## Status (2026-07-15)
+## Status (2026-08-16)
 
 - [x] Phase 0 — research, repo, environment
 - [x] Phase 1 — rv32 XIP Linux feasibility on QEMU `virt` (**shell in 2 MiB RAM**)
 - [x] Phase 2 — Renode platform for bao1x (smoke test green)
 - [x] Phase 3 — SBI shim + Linux boot in Renode (login on ttyBAO0, native
       irqchip/serial stack, robot-tested)
-- [ ] Phase 4 — hardware bring-up on Dabao: **flash-ready signed UF2 built**
-      (`tools/build-dabao-image.sh` → `build/dabao/dabao-linux.uf2`), awaiting
-      the physical board — see `docs/05-hardware-bringup.md` (⚠ first boot
-      burns DEVELOPER_MODE)
+- [ ] Phase 4 — hardware bring-up on Dabao: **blocked on hardware.** The shim
+      runs end-to-end on silicon; the kernel then hung in its DUART earlycon and
+      that board has not responded since (`docs/07-board-incident-2026-08-07.md`).
+      Fixes for the hang, the USB SE0 hold and RRAM write safety are committed
+      and build-clean but have never executed on silicon. Start from
+      **`docs/08-recovery-and-risk-ladder.md`** — risk-ordered, rung 0 writes
+      nothing (⚠ rung 3 burns DEVELOPER_MODE)
 - [ ] Phase 5 — drivers: pinctrl/GPIO ✅, I2C ✅, SPI ✅, RRAM MTD + JFFS2
       /data ✅ (robot-tested in Renode); SD n/a (no slot on Dabao); USB
       gadget outstanding (wants hardware)

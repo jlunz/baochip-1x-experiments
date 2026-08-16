@@ -10,7 +10,9 @@ tools/build-dabao-image.sh              # dabao DTB + shim + sign + UF2
 ```
 
 Output: `build/dabao/dabao-linux.uf2` (UF2, base 0x60060000) and
-`build/dabao/flash.bin` (raw signed image).
+`build/dabao/flash.bin` (raw signed image). `SHIM_ONLY=1` on the last command
+builds `dabao-shim-only.uf2` instead — the shim with no kernel behind it, which
+is how a board should be brought up first (`08-recovery-and-risk-ladder.md`).
 
 ## ⚠ One-time irreversible step
 
@@ -70,10 +72,24 @@ normally programmed (the third-party dabao-sdk flashes this way too).
 3. `uf2` REPL command directly (base64 blocks) — what uf2send.py drives.
 
 `bootwait` ships enabled, so boot1 does **not** auto-boot: issue `boot` on the
-REPL afterwards. Note `boot` asserts the USB SE0 pin and leaves it asserted
-for the next stage, so boot1's USB console dies at handoff — from that moment
-the PB14/PB13 UART is the only channel (boot1's own messages fall back to it
-automatically, see below).
+REPL afterwards. `boot` asserts the USB SE0 pin on the way out, so boot1's USB
+console dies at handoff and the PB14/PB13 UART becomes the only channel
+(boot1's own messages fall back to it automatically). The shim releases SE0
+again as soon as its console is up — see the stage markers below.
+
+## Before any of this: triage
+
+`docs/08-recovery-and-risk-ladder.md` is the risk-ordered procedure for getting
+onto hardware, and rung 0 comes before touching flash:
+
+```sh
+tools/board-triage.py --port /dev/serial/by-id/usb-Raspberry_Pi_Debug_Probe...-if01
+```
+
+It reports USB presence and negotiated speed, resets with a capture already
+running, looks for the boot0/boot1 banners, and writes nothing. Run it on a
+*healthy* board first and keep the output — the 2026-08-07 incident is hard to
+interpret partly because no baseline capture of a working board exists.
 
 ## Recovery / safe-mode
 
@@ -96,18 +112,18 @@ automatically, see below).
 ## Expected console output (UART2, 1 Mbaud)
 
 ```
-bao1x-sbi: jumping to kernel        <- shim (also on DUART, if routed)
+bao1x-sbi: jumping to kernel        <- shim
+[    0.000000] Linux version ...    <- earlycon=sbi, through the shim's DBCN
 ...                                 <- printk backlog once ttyBAO0 registers
 dabao login:                        <- root, empty password
 ```
 
-The kernel banner and earlycon lines go to the **DUART** (TX-only debug pad;
-may not be routed anywhere accessible) — the UART2 console starts printing
-at `console [ttyBAO0] enabled`, which includes the buffered boot log
-(CON_PRINTBUFFER), so nothing is lost even without DUART access. If the boot
-hangs before that point, rebuild with `earlycon=sbi` in
-`linux/dts/baochip/dabao.dts` bootargs: the SBI DBCN earlycon prints through
-the shim onto UART2 from the first kernel instruction.
+`dabao.dts` sets `earlycon=sbi` with `stdout-path = &uart2`, so the kernel's
+very first output goes through the shim's SBI DBCN console onto UART2 — the
+same wire as everything else, from the first kernel instruction. **Do not put
+earlycon back on the DUART**: Dabao routes no DUART pad and the divider is
+left at zero, so the DUART earlycon can never complete a character. That
+combination is what silently hung boot #5 on 2026-08-07.
 
 ## Triage matrix
 
@@ -115,9 +131,10 @@ the shim onto UART2 from the first kernel instruction.
 |---|---|---|
 | boot1 rejects/ignores image | signature/format | check boot1 console output over its USB console; re-run `tools/build-dabao-image.sh` (it self-checks slots + UF2) |
 | No shim banner on UART2 | boot1 didn't jump / shim crashed pre-console | check the `SBI:*` stage markers (below); verify DEVELOPER_MODE burn message |
-| Nothing at all on the UART, no boot0 banner | the chip is not executing — this is *upstream of firmware* | loopback-test the probe first (`tools/uart-loopback.py`), then power: different cable, direct root-hub port (not a hub chain) |
+| Nothing at all on the UART, no boot0 banner | the chip is not executing, *or* boot0 took its silent `die()` path (prints only on the unrouted DUART) | `tools/board-triage.py`; then power — measure 3V3/VBUS, different cable, direct root-hub port. The two causes are indistinguishable without a multimeter |
+| USB device appears but only at full speed and never answers | boot1 defaults to high speed, so this is not boot1's USB stack | check `dmesg` for `error -71` (physical layer); if the `usb_speed` OWC really reads `full`, set it back with `usb_speed high` |
 | Board absent from the **host's** `lsusb` | not a VM/passthrough issue | power/cable; note a running payload with no USB driver also presents nothing |
-| Shim banner, then silence | kernel didn't reach ttyBAO0 registration | switch bootargs to `earlycon=sbi console=hvc0` (pure shim console, no native drivers) and compare |
+| Shim banner, then silence | kernel didn't reach ttyBAO0 registration | with `earlycon=sbi` already in place, silence here means the kernel died before its first printk; try `console=hvc0` (pure shim console, no native drivers) and compare |
 | Boots but `sleep 1` is wrong length | TIMER0_TICKS_MULT / timebase wrong | calibrate: time 100 sleeps against wall clock; adjust `firmware/bao1x-sbi/bao1x.h` (dabao: mcycle@350MHz, TIMER0@700MHz assumed) and/or DT timebase-frequency |
 | Console garbled | UART divider vs real perclk | try divider 87..100 in bao1x.h `UART2_CLKDIV` (perclk is ~99.8MHz if boot1 defaults hold) |
 
@@ -133,9 +150,27 @@ through it moments earlier).
 | `SBI:entry` | shim entered, boot1's UART config usable |
 | `SBI:duart-ok` | survived `duart_puts()` (see the DUART hazard below) |
 | `SBI:uart-init` | UART2 reconfigured by the shim |
+| `SBI:se0-released` | PC13 released, USB reconnected (Dabao only) |
 | `SBI:dtb-copied` | DTB relocated to `DTB_DEST` |
 | `SBI:csr-done` | delegation + S-mode CSRs set |
+| `SBI:shim-only` + `SBI:alive` | `SHIM_ONLY=1` build: parked, not entering Linux |
 | `bao1x-sbi: jumping to kernel` | about to `mret` into the kernel |
+
+**USB SE0.** boot1's `boot` drives PC13 low and hands over expecting the next
+stage's USB stack to release it (README-baochip: *"it is up to the next USB
+stack to de-assert this"*). This port has no USB gadget, so the shim releases
+it itself in `firmware/bao1x-sbi/board.c`, mirroring boot1's own
+`setup_dabao_boot_pin()`. Without that, every boot leaves the port held
+disconnected and — because the switch is powered from VBUS — only a physical
+unplug restores it, never `RST_N`.
+
+**Shim-only images.** `SHIM_ONLY=1 tools/build-dabao-image.sh` builds a payload
+containing only the shim: it runs every stage, then parks in a 1 Hz `SBI:alive`
+heartbeat instead of entering the kernel. That exercises signing, packaging,
+handover and console without Linux ever executing, and leaves nothing in the
+payload region for boot0's fallback path to land on. Output is
+`build/dabao/dabao-shim-only.uf2` — a deliberately different filename, because
+the two images are indistinguishable once they are on the board.
 
 **DUART hazard.** The Dabao pinout exposes no DUART pins, and `SFR_ETUC`
 (baud divider, offset 0xc) has reset value 0 — with a zero divider `SFR_SR`

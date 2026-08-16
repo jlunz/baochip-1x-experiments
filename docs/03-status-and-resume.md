@@ -4,9 +4,11 @@
 > Chronological detail and evidence live in `04-bringup-log.md` (lab notebook);
 > this file is the *entry point for a future session/agent* picking up the work.
 
-Last updated: **2026-08-07** (phase 4 started on real hardware: image validates
-and DEVELOPER_MODE is burnt; shim hangs pre-console, fix built but unproven —
-board stopped responding mid-session, see 04-bringup-log).
+Last updated: **2026-08-16** (phase 4: the incident board is unresponsive and
+its recoverability is analysed in `07`/`08`; the three fixes that were lost with
+the gitignored trees have been reconstructed and committed, and
+`08-recovery-and-risk-ladder.md` is the risk-ordered way back onto hardware —
+start there, on a spare board).
 
 ## Phase status
 
@@ -16,7 +18,7 @@ board stopped responding mid-session, see 04-bringup-log).
 | 1 — rv32 XIP feasibility (QEMU virt) | ✅ done | busybox shell in a **2 MiB** RAM window; `emulation/qemu/*.sh` |
 | 2 — Renode bao1x platform | ✅ done | `emulation/renode/tests/run-smoke.sh` GREEN |
 | 3 — SBI shim + Linux in Renode | ✅ done | `tests/linux.robot` GREEN: login on ttyBAO0, native irqchip/serial stack, `sleep 1` returns |
-| 4 — hardware bring-up on Dabao | 🟡 **in progress on silicon** | image validates on-chip (`Booting with key 3/3(dev )`), DEVELOPER_MODE burnt, CPU 350MHz confirmed; shim silent after the jump — bounded-wait + stage-marker fix built and Renode-clean, **not yet proven on hardware** |
+| 4 — hardware bring-up on Dabao | 🔴 **blocked on hardware** | shim runs end-to-end on silicon (`SBI:csr-done` → jump); the kernel then hung in its DUART earlycon and the board has not responded since. Fixes for that hang, for the SE0 hold and for RRAM write safety are committed and build-clean but **have never executed on silicon**. Needs a board: `08-recovery-and-risk-ladder.md` |
 | 5 — driver expansion | 🟡 nearly done | pinctrl/GPIO ✅, I2C ✅, SPI ✅, RRAM-MTD+JFFS2 ✅ (all robot-tested); SD n/a on Dabao (no slot); USB-UDC not started (needs hardware to validate) |
 | 6 — upstream packaging | 🟡 nearly done | 22 patches in review order (SoC/dts/defconfig/MAINTAINERS included, dtbs_check clean); mainline-HEAD forward-port outstanding |
 
@@ -70,16 +72,18 @@ mtd-rom at **0x60220000** (usable RRAM ends 0x603DA000). Native drivers:
 
 ## Immediate next steps
 
-1. **Phase 4 (in progress)**: DEVELOPER_MODE is already burnt; the image
-   validates on-chip. The open item is the shim hanging before any console
-   output — flash the instrumented build (bounded `SPIN_LIMIT` waits + `SBI:*`
-   stage markers) and read the last marker. Prime suspect is `duart_puts()`
-   spinning on an unrouted DUART whose `SFR_ETUC` divider is 0. Flash over the
-   **console UART**, not USB (`uf2send.py` into boot1's REPL); PROG+RESET is
-   the guaranteed way back to boot1. See `05-hardware-bringup.md`.
-   *Blocked at end of 2026-08-07: board silent on both USB and UART after a
-   replug — loopback-test the probe path, check power LED, try another cable
-   and a direct root-hub port before suspecting the board.*
+1. **Phase 4 (blocked on hardware)**: work the ladder in
+   `08-recovery-and-risk-ladder.md`, on the spare board, in order. Rung 0 is
+   triage and writes nothing (`tools/board-triage.py`); rung 3 is the first
+   dev-signed boot and is the irreversible one. The shim-only image
+   (`SHIM_ONLY=1 tools/build-dabao-image.sh`) exists so the whole flash and
+   handover path can be proven before Linux ever executes.
+   *On the incident board: it is silent on the UART at every baud, and a reset
+   brings up only a full-speed USB device that never answers. Nothing our
+   payload did is persistent — see `07` for the evidence — so the open question
+   is power, the console link, or a silent boot0 abort, in that order. The
+   decisive unmade measurement is still 3V3 (pin 36) and VBUS (pin 40), and the
+   untried variable is still the USB cable.*
 2. **Corigine USB UDC** (0x50200000, port from xous
    `libs/bao1x-hal/src/usb/`) — the last phase-5 driver; needs real
    hardware to validate meaningfully, so do it after/with phase 4.
@@ -119,3 +123,18 @@ mtd-rom at **0x60220000** (usable RRAM ends 0x603DA000). Native drivers:
   *host's* `lsusb` lacks `1d50:6196`, it is not a passthrough problem.
 - Keep a UART capture running *across* any user-performed reset/replug;
   otherwise the event is unobservable after the fact.
+- **`sources/linux` and `build/` are gitignored scratch.** Anything fixed only
+  there is lost when the container goes away — it already cost the DUART
+  earlycon fix, the dts change and the SE0 fix, all of which had to be
+  reconstructed. Export kernel work with `tools/refresh-patches.sh`;
+  `build-dabao-image.sh` now runs `--check` and refuses to build from a tree
+  that has drifted from the committed series.
+- **A silent board is not proof of damage.** `die_no_std()` zeroizes state,
+  prints only on the unrouted DUART and hangs forever, identically on every
+  reset. On Dabao a security abort and an unpowered chip look the same over
+  both USB and UART; only a multimeter separates them.
+- **boot0 falls back to the payload region** if boot1 fails to validate, and on
+  this board that region holds our image — a hanging payload would then run
+  with no REPL and no bootwait. Never set the `altboot` OWC.
+- boot1 REPL commands read when given no argument and *write a one-way counter*
+  when given one (`usb_speed`, `bootwait`, `boardtype`). Query first.

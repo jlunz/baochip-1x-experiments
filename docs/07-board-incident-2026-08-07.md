@@ -428,3 +428,27 @@ The build host offered to stash current work and rebuild md5
 image actually flashed carried the unbounded `duart_puts()` spin. Deferred as
 low value — the boot #1 hang is already explained by the captured UART log, and
 the failure under investigation is upstream of anything the payload can reach.
+
+## Later observation (2026-08-16)
+
+A reset now brings up a **USB device at full speed** that still never completes
+enumeration. Recorded here because it changes what the evidence rules out, not
+because it resolves anything:
+
+- boot1 brings its port up at **high** speed unless the `UsbDefaultSpeed`
+  one-way counter says otherwise (`boot1/src/main.rs:239`). A full-speed device
+  is therefore *not* boot1's USB stack in its default configuration.
+- The port being electrically present at all means SE0 is no longer asserted —
+  consistent with the reset returning PC13 to an input, as boot1's
+  `setup_dabao_boot_pin()` would.
+- Something answering at full speed but failing `device descriptor read/64`
+  with `-71` is the same physical-layer signature seen from ~14:15 onward, four
+  hours before the failure.
+
+The analysis of what can and cannot be recovered from this state, and what the
+firmware could and could not have damaged, is in
+`08-recovery-and-risk-ladder.md`. Short version: the boot chain in RRAM is
+almost certainly intact — the kernel hung in its DUART earlycon before the MTD
+driver ever probed — see
+[Post-incident measurements](#post-incident-measurements-2026-08-10) for the
+VBUS/3V3 readings that already settled whether the board was powered.
