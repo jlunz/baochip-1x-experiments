@@ -22,14 +22,20 @@ need not route the pad at all (the Dabao brings out no DUART net).
 Dropping earlycon characters is preferable to hanging the boot on a
 debug pad that may not exist.
 
+The bound is an iteration count rather than a udelay() loop, because
+lpj_fine is not set until time_init(), long after earlycon registers --
+a microsecond timeout would be fictional at exactly the point it is
+needed. It latches on first expiry so a permanently stuck busy flag
+costs one bound for the whole boot log rather than one per character.
+
 Co-developed-by: Claude <noreply@anthropic.com>
 ---
  drivers/tty/serial/Kconfig       |  24 ++
  drivers/tty/serial/Makefile      |   2 +
- drivers/tty/serial/bao1x_duart.c |  69 +++++
+ drivers/tty/serial/bao1x_duart.c |  90 ++++++
  drivers/tty/serial/bao1x_uart.c  | 457 +++++++++++++++++++++++++++++++
  include/uapi/linux/serial_core.h |   3 +
- 5 files changed, 555 insertions(+)
+ 5 files changed, 576 insertions(+)
  create mode 100644 drivers/tty/serial/bao1x_duart.c
  create mode 100644 drivers/tty/serial/bao1x_uart.c
 
@@ -83,10 +89,10 @@ index 6ff74f0a9..7738fc06e 100644
  obj-$(CONFIG_SERIAL_MAX3100)		+= max3100.o
 diff --git a/drivers/tty/serial/bao1x_duart.c b/drivers/tty/serial/bao1x_duart.c
 new file mode 100644
-index 000000000..f70963fa0
+index 000000000..8c3e27685
 --- /dev/null
 +++ b/drivers/tty/serial/bao1x_duart.c
-@@ -0,0 +1,69 @@
+@@ -0,0 +1,90 @@
 +// SPDX-License-Identifier: GPL-2.0
 +/*
 + * Baochip bao1x DUART earlycon.
@@ -100,17 +106,31 @@ index 000000000..f70963fa0
 + * baud divider) resets to 0 and no boot stage is required to program it;
 + * with a zero divider the shifter never drains and DUART_SR_BUSY never
 + * clears. Worse, boards need not route the pad anywhere at all -- the
-+ * Dabao brings out no DUART net. So every wait here is bounded: dropping
-+ * earlycon characters is survivable, wedging the boot before the real
-+ * console registers is not.
++ * Dabao brings out no DUART net. So the wait is bounded: dropping earlycon
++ * characters is survivable, wedging the boot before the real console
++ * registers is not.
++ *
++ * The bound is an iteration count, not a delay. udelay() is unusable here:
++ * on RISC-V it scales by lpj_fine, which time_init() sets long after
++ * earlycon is registered, so an early udelay(1) computes a zero-cycle delay
++ * and returns immediately -- any timeout expressed in microseconds would be
++ * fictional. A raw count needs no calibrated timer, and on this SoC it also
++ * needs no working cycle counter, which matters because get_cycles() here is
++ * rdtime, emulated by a trap into the M-mode shim.
++ *
++ * The first timeout latches. A stuck busy flag is structural on this device
++ * (an unprogrammed divider does not fix itself), and without the latch every
++ * subsequent character would pay the full bound again -- turning a few KiB of
++ * early boot log into a wait long enough to look exactly like the hang this
++ * bound was added to prevent.
 + *
 + * Co-developed-by: Claude <noreply@anthropic.com>
 + */
 +
 +#include <linux/console.h>
-+#include <linux/delay.h>
 +#include <linux/io.h>
 +#include <linux/serial_core.h>
++#include <linux/types.h>
 +
 +#define DUART_TXD	0x00
 +#define DUART_CR	0x04
@@ -119,18 +139,25 @@ index 000000000..f70963fa0
 +#define DUART_CR_EN	BIT(0)
 +#define DUART_SR_BUSY	BIT(0)
 +
-+/* Far longer than a character time at any plausible divider, so a working
-+ * DUART never reaches it. */
-+#define DUART_TX_TIMEOUT_US	10000
++/* Orders of magnitude more MMIO reads than a character time costs at any
++ * plausible divider, so a working DUART never reaches it. */
++#define DUART_TX_SPINS	100000
++
++static bool duart_tx_wedged;
 +
 +static void bao1x_duart_putc(struct uart_port *port, unsigned char ch)
 +{
-+	unsigned int timeout = DUART_TX_TIMEOUT_US;
++	unsigned int spins = DUART_TX_SPINS;
++
++	if (duart_tx_wedged)
++		return;
 +
 +	while (readl_relaxed(port->membase + DUART_SR) & DUART_SR_BUSY) {
-+		if (!timeout--)
++		if (!--spins) {
++			duart_tx_wedged = true;
 +			return;
-+		udelay(1);
++		}
++		cpu_relax();
 +	}
 +	writel_relaxed(ch, port->membase + DUART_TXD);
 +}
