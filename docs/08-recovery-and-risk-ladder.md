@@ -8,6 +8,11 @@ from recurring, plus what changed in the tree to make each rung survivable.
 
 Read `## Rung 0` before touching anything, including the spare.
 
+This document is the risk *ordering* — what each step costs and what it makes
+irreversible. `09-new-board-bringup-plan.md` is the executable procedure built
+on it: the host-side pre-flight, a step-by-step run sheet, and the board
+allocation to decide first.
+
 ---
 
 ## What is and is not recoverable on this silicon
@@ -39,7 +44,13 @@ hard to brick.**
 - `bootwait` is enabled on these units, so boot1 never auto-boots the payload.
 - **PROG + RESET forces the REPL regardless of bootwait** — hold PROG, press and
   release RESET while still holding PROG, wait 1 s, release. boot1 prints
-  `Boot bypassed with keypress`.
+  `Boot bypassed with keypress`. **One exception:** `main.rs:184` short-circuits
+  to `try_boot()` when the `warm_boot` backup flag is set, *ahead of* both the
+  bootwait check and the keypress check. The flag is OS-managed, nothing in this
+  port writes it, and `AORSTn` clears it by hardware design
+  (`bao1x-api/src/lib.rs:73–77`) — but a payload that sets it and then hangs has
+  removed the recovery window entirely. **Never set `warm_boot` from the
+  payload.**
 - **boot1's REPL reads the UART whenever USB is not `Configured`**
   (`boot1/src/main.rs:326`). Broken USB does not block reflashing;
   `uf2send.py` over the probe UART is a complete recovery path.
@@ -111,24 +122,57 @@ Also, in this order:
 
 **Pass:** boot0 and boot1 banners after a reset. **Then and only then** move on.
 
-### Rung 1 — boot1 REPL, read-only commands. No writes. Near-zero risk.
+### Rung 1 — boot1 REPL, query commands. No persistent writes. Near-zero risk.
 
 PROG + RESET into the REPL, then use the *query* forms only:
 
 ```
 help
-audit                 # dumps identity and configuration
+audit                 # the important one -- see below
 usb_speed             # bare: prints the current setting
-bootwait              # bare: prints the current setting
+bootwait check        # 'check', not bare: the bare form is a help error
 ```
 
-**The bare form reads; the form with an argument increments a one-way counter.**
-`boot1/src/repl.rs:1096` shows `usb_speed full` looping `inc_coded` until the
-modulus matches. Do not pass arguments here.
+**Which form reads is per-command; check before typing.** `usb_speed` bare
+reads (`repl.rs:1098`) and `usb_speed full` loops `inc_coded` until the modulus
+matches (`repl.rs:1117`). `bootwait`, though, requires exactly one argument and
+returns a help error otherwise (`repl.rs:456`), so the read is `bootwait check`
+(`repl.rs:472`) and `toggle`/`enable`/`disable` are the counter writers. Never
+guess the form: guessing wrong on a command that takes an argument is a
+one-way counter write.
+
+**`audit` is the one to capture, and it does more than dump identity.** It
+prints, alongside board type, stepping, serial and UUID:
+
+| Line | Slot | Why it matters |
+|---|---|---|
+| `Paranoid mode: <a>/<b>` | 65 / 67 | `PARANOID_MODE` / `PARANOID_MODE_DUPE`. boot0 compares these for exact equality at `bao1x.rs:62` **before any console exists**; `a != b` is a permanent, silent, pre-console brick on the next boot |
+| `Possible attack attempts: <n>` | 66 | `POSSIBLE_ATTACKS`. Rising means the glitch detectors are firing |
+| `First-try boot partition is:` | — | `AltBootCoding`; must stay on boot1 (rung 6) |
+| `Revocations:` table | 68/116/… | any `enabled` → `revoked` transition is unrecoverable |
+| `Boot0:` / `Boot1:` / `Next stage:` | — | whether each stage validates — including, after rung 2, the payload just flashed, **without booting it** |
+
+Slots are `bao1x-api/src/offsets/common.rs:182,188,191` — the same three the
+incident document asks the vendor to read off the dead die. On a live board they
+are one command away. **Capture this output before anything else and re-run it
+after every rung**; a differential move on 65/67 is then caught while the board
+still boots, instead of on the reset that never comes back.
+
+Two precisions, so this is not recorded as more than it is. `audit` is not
+bit-for-bit read-only: `detect_stepping()` (`audit.rs:46`) writes the RRC
+security-mode register to test whether bit 12 is clearable, then restores it —
+a volatile peripheral CSR, no fuse, no RRAM, no counter, and the vendor's own
+auto-audit path runs it unprompted on the first three boots of every chip. And
+the REPL's `audit` calls `audit()` directly; only boot1's automatic
+`early_audit()` increments `EARLY_BOOT_COUNT`, which happens on power-up
+regardless.
 
 **Proves:** the chip executes, the REPL is reachable, and the flash path is
 open — which is the whole recovery story. If the board reaches this rung it is
 not bricked, whatever else is wrong.
+
+**Gate:** banners, REPL reachable, `Paranoid mode` with both halves equal, and
+no unexpected revocation.
 
 ### Rung 2 — Flash the shim-only image, do not boot it. Reversible.
 
@@ -153,9 +197,13 @@ until the image is actually booted.** boot1 validates the signature *before*
 `hardened_erase_policy` runs (`secboot.rs`), so a rejected image leaves the
 fuses untouched.
 
-**Pass:** boot1 accepts the image. Record the md5 the build prints, against the
-boot it produces — the incident timeline is only reconstructable because those
-were recorded.
+**Pass:** boot1 accepts the image, and `audit` then reports `Next stage: key
+3/3 (dev ) -> …`. That is the cheapest check in the whole ladder: it proves the
+image landed and validates with no fuse touched, because boot1 validates
+*before* `hardened_erase_policy` runs. `Next stage did not validate` here means
+reflash, not `boot`. Record the md5 the build prints, against the boot it
+produces — the incident timeline is only reconstructable because those were
+recorded.
 
 ### Rung 3 — First boot of a dev-signed image. **Irreversible: burns DEVELOPER_MODE.**
 
@@ -198,8 +246,10 @@ unbounded — that is what silently parked the CPU on boot #5.
 
 Root is XIP cramfs, mounted **read-only**. Nothing writes RRAM at this rung.
 
-**Recovery from a hang:** PROG + RESET. That keeps working as long as bootwait
-stays enabled, which is why rung 6 exists and is last.
+**Recovery from a hang:** PROG + RESET. The keypress path does not depend on
+bootwait — what bootwait buys is the *automatic* window, with no key pressed at
+all. What removes the recovery entirely is `altboot` or a payload that sets
+`warm_boot`, which is why rung 6 exists and is last.
 
 **Abort if:** the kernel prints nothing at all. That means early output is
 still not reaching the wire; go back and prove the console at rung 3 rather
