@@ -43,8 +43,13 @@ hard to brick.**
 
 - `bootwait` is enabled on these units, so boot1 never auto-boots the payload.
 - **PROG + RESET forces the REPL regardless of bootwait** — hold PROG, press and
-  release RESET while still holding PROG, wait 1 s, release. boot1 prints
-  `Boot bypassed with keypress`. **One exception:** `main.rs:184` short-circuits
+  release RESET while still holding PROG, wait 1 s, release. Which banner
+  boot1 prints depends on that same bootwait state (`main.rs:190–194`, and the
+  two are mutually exclusive): `Boot bypassed because bootwait was enabled` on
+  these units (bootwait enabled, previous line), `Boot bypassed with
+  keypress: …` only on a unit with bootwait disabled. Reaching the prompt is
+  the actual guarantee; don't wait on a specific banner text. **One
+  exception:** `main.rs:184` short-circuits
   to `try_boot()` when the `warm_boot` backup flag is set, *ahead of* both the
   bootwait check and the keypress check. The flag is OS-managed, nothing in this
   port writes it, and `AORSTn` clears it by hardware design
@@ -53,9 +58,18 @@ hard to brick.**
   payload.**
 - **boot1's REPL reads the UART whenever USB is not `Configured`**
   (`boot1/src/main.rs:326`). Broken USB does not block reflashing;
-  `uf2send.py` over the probe UART is a complete recovery path.
-- boot1 range-checks every UF2 write to the payload region
-  (`usb/handlers.rs:249`), so flashing cannot damage the bootloader.
+  `uf2send.py` over the probe UART is a complete recovery path. The converse
+  holds too and is easy to trip over: the guard is `USB_CONNECTED`
+  (`main.rs:304`), which latches once USB reaches `Configured` and prints
+  `Console moved to USB serial` — after that line the probe UART is no longer
+  read, and the CDC console is where the REPL lives.
+- boot1 range-checks every UF2 write to the payload region, so flashing cannot
+  damage the bootloader. The two flash paths use different bounds: the REPL
+  `uf2` command that `uf2send.py` drives is half-open, `BAREMETAL_START` up to
+  but not including `HW_RERAM_MEM + RRAM_STORAGE_LEN` (`repl.rs:182–184`), while
+  the USB mass-storage handler is inclusive at the top (`usb/handlers.rs:249`).
+  The one-way counter array starts at exactly that top bound (`acram.rs:20`), so
+  the UART path cannot address it at all. See `09` § E.
 
 **The one trap in that design.** If boot1 ever fails to validate, boot0 falls
 back to the LOADER/BAREMETAL region (`boot0/src/main.rs:325`) — which on this
@@ -149,14 +163,22 @@ prints, alongside board type, stepping, serial and UUID:
 | `Paranoid mode: <a>/<b>` | 65 / 67 | `PARANOID_MODE` / `PARANOID_MODE_DUPE`. boot0 compares these for exact equality at `bao1x.rs:62` **before any console exists**; `a != b` is a permanent, silent, pre-console brick on the next boot |
 | `Possible attack attempts: <n>` | 66 | `POSSIBLE_ATTACKS`. Rising means the glitch detectors are firing |
 | `First-try boot partition is:` | — | `AltBootCoding`; must stay on boot1 (rung 6) |
-| `Revocations:` table | 68/116/… | any `enabled` → `revoked` transition is unrecoverable |
+| `Revocations:` table | 116/120/124 | the **main** array only — `audit.rs:101` says so, so the dupes at 68/72/76 are never printed. Any `enabled` → `revoked` transition is unrecoverable; a slot already reading `revoked` in the baseline is not one |
+| `PQ required: <a>/<b>` | 19 / 44 | `REQUIRE_PQ` / `REQUIRE_PQ_DUPE`, enforced for every stage at `sigcheck.rs:312`. Must stay `0/0` — our images carry no PQ signature |
 | `Boot0:` / `Boot1:` / `Next stage:` | — | whether each stage validates — including, after rung 2, the payload just flashed, **without booting it** |
 
-Slots are `bao1x-api/src/offsets/common.rs:182,188,191` — the same three the
-incident document asks the vendor to read off the dead die. On a live board they
-are one command away. **Capture this output before anything else and re-run it
+The three slots the incident document asks the vendor to read off the dead die —
+65, 66, 67 — are defined at `bao1x-api/src/offsets/common.rs:182,188,191`. On a
+live board they are one command away. **Capture this output before anything else and re-run it
 after every rung**; a differential move on 65/67 is then caught while the board
-still boots, instead of on the reset that never comes back.
+still boots, instead of on the reset that never comes back — **but only when
+no reset separates the rung from the `audit` that reads it.** boot0 itself
+compares 65 and 67 for equality (`bao1x.rs:62`), *before any console exists*,
+on every reset — so wherever a rung is followed by "PROG + RESET, then
+`audit`" (rungs 3 onward), a desync is caught by a silent brick on that reset,
+not by the diff. The diff only truly catches 65/67 in place across a rung that
+does not reset the board in between; see `09` § `## The tripwire: audit` for
+the detail.
 
 Two precisions, so this is not recorded as more than it is. `audit` is not
 bit-for-bit read-only: `detect_stepping()` (`audit.rs:46`) writes the RRC
@@ -164,8 +186,8 @@ security-mode register to test whether bit 12 is clearable, then restores it —
 a volatile peripheral CSR, no fuse, no RRAM, no counter, and the vendor's own
 auto-audit path runs it unprompted on the first three boots of every chip. And
 the REPL's `audit` calls `audit()` directly; only boot1's automatic
-`early_audit()` increments `EARLY_BOOT_COUNT`, which happens on power-up
-regardless.
+`early_audit()` increments `EARLY_BOOT_COUNT`, which happens on every boot1
+start — power-up or reset alike — regardless.
 
 **Proves:** the chip executes, the REPL is reachable, and the flash path is
 open — which is the whole recovery story. If the board reaches this rung it is
@@ -226,8 +248,12 @@ SBI:alive                          <- once a second, forever
 
 **Proves, without ever executing Linux:** signing, UF2 packaging, slot layout,
 the boot1→shim handover, every bounded busy-wait, the CSR probe, the console,
-and the new SE0 release. A board in this state is always recoverable: nothing
-here writes RRAM, and PROG+RESET returns to the REPL.
+and the new SE0 release. A board in this state is always recoverable —
+PROG+RESET returns to the REPL — but "recoverable" is not "RRAM-clean": this
+is the rung's whole point. `boot` erases the key slots (first dev-signed boot
+only) and increments `DEVELOPER_MODE` (every dev-signed boot, saturating
+around the sixth); see `09` § F for the exact accounting. What PROG+RESET
+recovers is *access*, not the fuse state.
 
 **If `SBI:se0-released` appears and USB comes back after a plain reset** — no
 physical replug — the SE0 fix is confirmed, and the single most annoying
@@ -294,9 +320,15 @@ the whole reason it is last, and the reason to do it on the spare.
 
 ### Never
 
-`self_destruct`, `publock`, `lockdown`, `rand_collateral`, and any write to the
-IFR region. These are vendor test and lifecycle commands; they do what their
-names say.
+`require-pq`, `self_destruct`, `publock`, `lockdown`, `rand_collateral`, and any
+write to the IFR region. These are vendor test and lifecycle commands; they do
+what their names say.
+
+`require-pq confirm` deserves singling out: it increments `REQUIRE_PQ` and
+`REQUIRE_PQ_DUPE` (`repl.rs:724–739`), its own help says *"cannot be undone!"*,
+and `validate_image` then demands a PQ signature from every stage
+(`sigcheck.rs:312–313`). Our images have none. It is in the REPL's advertised
+command list, one typo from `reset`.
 
 ---
 

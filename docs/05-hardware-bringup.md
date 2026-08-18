@@ -95,7 +95,11 @@ interpret partly because no baseline capture of a working board exists.
 
 - **PROG button = guaranteed boot1 REPL**, regardless of `bootwait`:
   hold PROG, press+release RESET (keep holding PROG), wait 1 s, release PROG.
-  boot1 prints `Boot bypassed with keypress`.
+  The banner boot1 prints depends on the bootwait state (`main.rs:190–194`,
+  mutually exclusive): `Boot bypassed because bootwait was enabled` on units
+  with bootwait enabled (the normal case here — see above), `Boot bypassed
+  with keypress: …` only if it is disabled. The prompt being reachable is the
+  guarantee; the specific text is not.
 - **`RST_N` is on the header** (`AORSTn`, SoC ball H5, Pico-form-factor RUN,
   physical pin 30). Wire a DTR-capable USB-serial adapter to it for
   software-controlled reset and hands-free iteration. It is **not** `GPIO_PB1`
@@ -104,7 +108,10 @@ interpret partly because no baseline capture of a working board exists.
   but unrouted on Dabao, so `AORSTn` and a power cycle are the only resets the
   board exposes.
 - Flashing can never brick the bootloader: boot1 range-checks every UF2 write
-  to the payload region (`usb/handlers.rs:249`).
+  to the payload region. The two flash paths use different bounds — the REPL
+  `uf2` command that `uf2send.py` drives is half-open at `repl.rs:182–184`,
+  the USB mass-storage handler is inclusive at the top at `usb/handlers.rs:249`
+  — see `08` rung 0 or `09` § E for which applies to which path.
 - The DEVELOPER_MODE burn is gated on a **valid signature** — `secboot.rs`
   runs `validate_image` before `hardened_erase_policy`, so a bad image gives
   `Image did not validate` with the fuses untouched.
