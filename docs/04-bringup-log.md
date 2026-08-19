@@ -730,3 +730,45 @@ deliberately a second long.
 
 Not rebuilt: this host has no `riscv64-*-gcc` (only `qemu-riscv*-static`), so
 the change is verified by host simulation and inspection, not by a cross build.
+
+## 2026-08-19 — block A host pre-flight (docs/09), new-board bring-up
+
+Ran `docs/09-new-board-bringup-plan.md` block A (A1–A10) end to end on a fresh
+toolbox: no `sources/`, no Rust, no board yet. All steps green; one real defect
+found and fixed by the pre-flight before any board was involved, which is the
+step's whole point.
+
+**A6 drift.** `tools/refresh-patches.sh --check` failed on 21 of 22 patches
+straight after a clean `git am` of the same series — not a content difference,
+but a stray blank line each committed `.patch` file carried between its diff
+body and the `-- ` signature trailer, left over from however the series was
+last exported, which the checker's normalizer doesn't fully absorb. Confirmed
+cosmetic (author/date/subject/diff body all identical) before re-exporting;
+`tools/refresh-patches.sh` then `--check` green. Committed separately
+(`chore/refresh-v6.14-patch-series`).
+
+**A9 defect: `tools/mkuf2.py` wrote the wrong `payload_size` on a partial final
+block.** `SHIM_ONLY=1 tools/build-dabao-image.sh` failed its own `cmp` against
+`xous-sign-image`'s UF2 output. Root cause: `mkuf2.py` put `len(chunk)` in the
+block header's `payload_size` field instead of the fixed 256 the UF2 convention
+(and the vendor tool) uses — right for every full block, wrong for a short
+final one. That field is not cosmetic: both `boot1` (`uf2.rs:63`,
+`Block::data()`) and `uf2send.py` slice a block's 256-byte payload down to
+`payload_size` before writing it to RRAM, so the old code would have left the
+last ~208 bytes of the shim's flash region stale instead of zeroed. The
+full/kernel image never hit this — its total size happens to be a multiple of
+256 — which is exactly why only A9, not A8, caught it. Fixed to always emit
+256; `chunk.ljust(476, ...)` already padded the actual bytes correctly, so only
+the metadata was wrong. Verified `dabao-shim-only.uf2` now byte-matches
+`flash.uf2`, and that the fix does not change the full image's md5. Committed
+separately (`fix/mkuf2-final-block-payload-size`).
+
+**Artifacts, this host, this date:**
+
+| Build | md5 | Notes |
+|---|---|---|
+| `dabao-linux.uf2` (A8, full) | `13a5ca7fb1d05f38d0e918c5c85fe27a` | kernel v6.14+series, `bao1x-xip.config`; unchanged by the mkuf2.py fix |
+| `dabao-shim-only.uf2` (A9) | `9d0a6d0aa3c4b7840f6860ede8ac0148` | rebuilt last per A9, so this is what's on disk; post-fix |
+
+Both `A7` Renode gates green (`smoke.robot`, `linux.robot`). Next: block B
+(bench setup) with a board on hand.
