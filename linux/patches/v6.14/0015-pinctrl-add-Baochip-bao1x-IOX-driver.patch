@@ -1,4 +1,4 @@
-From 0988b0f7e7e90f6b38a371b0a712607384cd46d6 Mon Sep 17 00:00:00 2001
+From 79bca77314a4469b07cb86ef988272a56cab4f0d Mon Sep 17 00:00:00 2001
 From: Claude <noreply@anthropic.com>
 Date: Wed, 15 Jul 2026 11:36:07 +0200
 Subject: [PATCH 15/22] pinctrl: add Baochip bao1x IOX driver
@@ -394,6 +394,3 @@ index 000000000..1b6c18670
 +
 +MODULE_DESCRIPTION("Baochip bao1x IOX pinctrl/GPIO driver");
 +MODULE_LICENSE("GPL");
--- 
-2.55.0
-

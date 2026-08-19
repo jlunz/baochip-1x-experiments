@@ -1,4 +1,4 @@
-From fc8897f4ad6d46d28c0fe1c798d45c309a31c866 Mon Sep 17 00:00:00 2001
+From 5c7e0beef655ba20beaf11858e6b78be04ac481b Mon Sep 17 00:00:00 2001
 From: Claude <noreply@anthropic.com>
 Date: Wed, 15 Jul 2026 15:47:08 +0200
 Subject: [PATCH 17/22] i2c: add Baochip bao1x uDMA I2C driver
@@ -318,6 +318,3 @@ index 000000000..5a627bd4f
 +
 +MODULE_DESCRIPTION("Baochip bao1x uDMA I2C bus driver");
 +MODULE_LICENSE("GPL");
--- 
-2.55.0
-

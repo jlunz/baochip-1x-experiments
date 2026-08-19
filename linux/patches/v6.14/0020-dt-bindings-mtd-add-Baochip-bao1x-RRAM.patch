@@ -1,4 +1,4 @@
-From bf12e2fb8310564f7a74e75e8dd003d35879ae10 Mon Sep 17 00:00:00 2001
+From 9259931b201bbabaa2104981f7c8e7eab8ffe99d Mon Sep 17 00:00:00 2001
 From: Claude <noreply@anthropic.com>
 Date: Wed, 15 Jul 2026 16:12:31 +0200
 Subject: [PATCH 20/22] dt-bindings: mtd: add Baochip bao1x RRAM
@@ -16,7 +16,7 @@ Co-developed-by: Claude <noreply@anthropic.com>
 
 diff --git a/Documentation/devicetree/bindings/mtd/baochip,bao1x-rram.yaml b/Documentation/devicetree/bindings/mtd/baochip,bao1x-rram.yaml
 new file mode 100644
-index 000000000..371a2ce2f
+index 000000000..048bd0226
 --- /dev/null
 +++ b/Documentation/devicetree/bindings/mtd/baochip,bao1x-rram.yaml
 @@ -0,0 +1,68 @@
@@ -88,6 +88,3 @@ index 000000000..371a2ce2f
 +            };
 +        };
 +    };
--- 
-2.55.0
-

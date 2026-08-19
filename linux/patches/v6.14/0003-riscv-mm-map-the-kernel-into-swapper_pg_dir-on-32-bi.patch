@@ -1,4 +1,4 @@
-From c4f5d939dc8318285db7fc73cf3e4313148a9377 Mon Sep 17 00:00:00 2001
+From 813c8f42560e7d75a938c28b03aba3c714fb0b0e Mon Sep 17 00:00:00 2001
 From: Claude <noreply@anthropic.com>
 Date: Tue, 14 Jul 2026 19:22:30 +0200
 Subject: [PATCH 03/22] riscv: mm: map the kernel into swapper_pg_dir on 32-bit
@@ -39,6 +39,3 @@ index 5c9e18467..486ad0ece 100644
  		create_kernel_page_table(swapper_pg_dir, false);
  
  #ifdef CONFIG_KASAN
--- 
-2.55.0
-

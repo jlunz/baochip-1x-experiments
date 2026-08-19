@@ -1,4 +1,4 @@
-From 7eadb1eb6ba85d948acdf8bf0e7422cf5bf6b6f5 Mon Sep 17 00:00:00 2001
+From f2431e3312c03ab70bc5d332d31485fc979c4dff Mon Sep 17 00:00:00 2001
 From: Claude <noreply@anthropic.com>
 Date: Wed, 15 Jul 2026 11:14:44 +0200
 Subject: [PATCH 10/22] dt-bindings: interrupt-controller: add Baochip bao1x
@@ -145,6 +145,3 @@ index 5079ca6ce..549ec8cbc 100644
    "^beacon,.*":
      description: Compass Electronics Group, LLC
    "^beagle,.*":
--- 
-2.55.0
-

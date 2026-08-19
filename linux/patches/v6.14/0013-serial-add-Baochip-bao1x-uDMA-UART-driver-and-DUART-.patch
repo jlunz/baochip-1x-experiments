@@ -1,4 +1,4 @@
-From 289212d75744ec2e65540453057764087cca7a17 Mon Sep 17 00:00:00 2001
+From fd37d53611fdb349b9873d57f90a889375f0b58d Mon Sep 17 00:00:00 2001
 From: Claude <noreply@anthropic.com>
 Date: Wed, 15 Jul 2026 10:52:58 +0200
 Subject: [PATCH 13/22] serial: add Baochip bao1x uDMA UART driver and DUART
@@ -660,6 +660,3 @@ index 9c007a106..2fda2675e 100644
  /* Generic type identifier for ports which type is not important to userspace. */
  #define PORT_GENERIC	(-1)
  
--- 
-2.55.0
-

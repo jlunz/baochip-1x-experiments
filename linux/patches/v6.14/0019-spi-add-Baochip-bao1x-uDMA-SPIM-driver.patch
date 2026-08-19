@@ -1,4 +1,4 @@
-From dded941b7f306e9e8fd54390f69f06502ca2c01f Mon Sep 17 00:00:00 2001
+From 25ee581ca829571454d48d1ac951c44492845404 Mon Sep 17 00:00:00 2001
 From: Claude <noreply@anthropic.com>
 Date: Wed, 15 Jul 2026 15:59:19 +0200
 Subject: [PATCH 19/22] spi: add Baochip bao1x uDMA SPIM driver
@@ -312,6 +312,3 @@ index 000000000..d1182b192
 +
 +MODULE_DESCRIPTION("Baochip bao1x uDMA SPI bus driver");
 +MODULE_LICENSE("GPL");
--- 
-2.55.0
-

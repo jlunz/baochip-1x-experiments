@@ -1,4 +1,4 @@
-From a42928b89a66e7871ce38d1c8ed8d1217f994b73 Mon Sep 17 00:00:00 2001
+From 5212332c162a675828e569df1e582c424ea9d4d7 Mon Sep 17 00:00:00 2001
 From: Claude <noreply@anthropic.com>
 Date: Wed, 15 Jul 2026 06:21:54 +0200
 Subject: [PATCH 08/22] riscv: allow selecting THREAD_SIZE_ORDER without
@@ -44,6 +44,3 @@ index 3378150d3..eb2ea1f80 100644
  	range 0 4
  	default 1 if 32BIT
  	default 2
--- 
-2.55.0
-

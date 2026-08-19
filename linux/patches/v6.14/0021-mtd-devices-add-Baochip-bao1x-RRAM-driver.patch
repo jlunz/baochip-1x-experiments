@@ -1,4 +1,4 @@
-From cd76b0948b87485aa00e0720700b5f4d0d35430c Mon Sep 17 00:00:00 2001
+From db5475e92368bc6f68e356e216f18e6854f40185 Mon Sep 17 00:00:00 2001
 From: Claude <noreply@anthropic.com>
 Date: Wed, 15 Jul 2026 16:12:32 +0200
 Subject: [PATCH 21/22] mtd: devices: add Baochip bao1x RRAM driver
