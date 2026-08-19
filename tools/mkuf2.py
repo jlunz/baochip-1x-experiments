@@ -30,9 +30,18 @@ def main():
     with open(args.output, "wb") as out:
         for i in range(nblocks):
             chunk = data[i * PAYLOAD:(i + 1) * PAYLOAD]
+            # payload_size is not cosmetic: boot1 (uf2.rs:63) and uf2send.py
+            # slice each block's data to exactly this many bytes before
+            # writing it to RRAM. The UF2 convention -- and xous-sign-image's
+            # own writer -- is a fixed 256 every block, zero-padding a short
+            # final chunk into the write rather than shrinking it. Reporting
+            # len(chunk) here instead undersells the last block whenever the
+            # image size isn't a multiple of 256, and boot1 then leaves the
+            # unwritten tail of that block's flash region stale instead of
+            # zeroed.
             block = struct.pack(
                 "<IIIIIIII", MAGIC0, MAGIC1, FLAG_FAMILY_ID,
-                args.base + i * PAYLOAD, len(chunk), i, nblocks,
+                args.base + i * PAYLOAD, PAYLOAD, i, nblocks,
                 BAOCHIP_1X_FAMILY)
             block += chunk.ljust(476, b"\x00")
             block += struct.pack("<I", MAGIC_END)
