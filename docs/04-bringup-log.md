@@ -1154,3 +1154,26 @@ precisely the thing that's missing.
 ("treat it as a vendor FA sample"), this is not a state to keep
 improvising against with more resets. Everything captured and committed;
 awaiting a decision on how to proceed before touching the board again.
+
+**Full power cycle attempted, on the user's explicit decision — still
+SILENT.** Power removed entirely (both VBUS and USB-C, via PPK2 as the
+source) and reapplied, rather than another RST_N/PROG pulse. `board-triage.py`
+against the freshly-powered board: `1d50:6196: absent`, **0 bytes over 6s**,
+same SILENT verdict as before.
+
+This matters more than another failed reset would: a cold power-down clears
+volatile logic state that no reset line does, so this was the strongest
+available test of "is this a transient boot0 hang" versus "is this a
+permanent condition." Two independent recovery vectors now tried
+(RST_N/PROG+RESET, and a full power cycle) and both failed identically. That
+weighs heavily against a transient explanation and toward the permanent one
+— a `Paranoid mode: a/b` desync would not be cleared by either, being a
+one-way RRAM counter comparison rather than volatile state, and produces
+exactly this signature (silent, unrecoverable, undetectable by any diff
+because `bao1x.rs:62`'s check runs before any console exists).
+
+Not proven — there is still no way to read `audit` and confirm this
+directly, which is the whole problem — but treating this board as most
+likely in that state from here. No further reset or power-cycle attempts
+planned; there is no remaining untried recovery vector that a `SILENT`
+verdict wouldn't be equally consistent with a permanent brick.
