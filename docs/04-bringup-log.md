@@ -962,3 +962,30 @@ E on the user's explicit decision; this is recorded so a later reader
 doesn't mistake the missing commands for a tooling bug.
 
 **D gate: holds.** Proceeding to block E.
+
+### Block E: shim-only flashed, last reversible point
+
+Two more missing host deps found and fixed the same way as before
+(`dnf install`): `python3-progressbar2` (`uf2send.py` needs it) — same
+pattern as `python3-pyserial` and `util-linux-script` earlier; this host's
+Python/CLI toolchain gaps keep surfacing one tool at a time as each is first
+used.
+
+**E1** (`docs/serial_traces/20260820_110400_e1-uf2send-shim-only.log`):
+`build/dabao/dabao-shim-only.uf2` (md5 `9d0a6d0a…`, matching this branch's
+name) over UART, using the pacing-patched `uf2send.py`
+(`xous-core-local-patches/`). **27/27 blocks, zero retries**, ~95s — the fix
+held up perfectly on a real transfer, not just the short REPL commands it was
+proven on.
+
+**E2** (`docs/serial_traces/20260820_110549_e2-audit-post-flash.log`):
+`Next stage: key 3/3 (dev ) -> 60060000` — the shim landed and validates, no
+fuse touched.
+
+**E3:** diffed E2 against D5 — the only difference in the entire transcript
+is that one line (`key 2/2 (beta)` → `key 3/3 (dev )`). Everything else,
+including `Paranoid mode: 0/0` and both revocation tables, is byte-identical.
+
+**Gate for E: holds.** Last fully reversible point. Proceeding to block F —
+already covered by the explicit decision to run the full D-onward sequence,
+including the dev-signed boot, on this board.

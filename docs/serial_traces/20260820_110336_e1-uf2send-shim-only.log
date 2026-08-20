@@ -1,0 +1,7 @@
+Script started on 2026-08-20 11:03:36+02:00 [COMMAND="python3 sources/xous-core/bao1x-boot/uf2send.py build/dabao/dabao-shim-only.uf2 --port /dev/serial/by-id/usb-Raspberry_Pi_Debug_Probe__CMSIS-DAP__E6614103E7213E2F-if01" <not executed on terminal>]
+Traceback (most recent call last):
+  File [35m"/var/home/claude/dev/github/baochip-1x-experiments/sources/xous-core/bao1x-boot/uf2send.py"[0m, line [35m17[0m, in [35m<module>[0m
+    from progressbar.bar import ProgressBar
+[1;35mModuleNotFoundError[0m: [35mNo module named 'progressbar'[0m
+
+Script done on 2026-08-20 11:03:36+02:00 [COMMAND_EXIT_CODE="1"]

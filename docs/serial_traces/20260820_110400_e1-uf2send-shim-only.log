@@ -1,0 +1,27 @@
+Script started on 2026-08-20 11:04:00+02:00 [COMMAND="python3 sources/xous-core/bao1x-boot/uf2send.py build/dabao/dabao-shim-only.uf2 --port /dev/serial/by-id/usb-Raspberry_Pi_Debug_Probe__CMSIS-DAP__E6614103E7213E2F-if01" <not executed on terminal>]
+
+============================================================
+UF2 Transfer Starting
+============================================================
+File: dabao-shim-only.uf2
+Port: /dev/serial/by-id/usb-Raspberry_Pi_Debug_Probe__CMSIS-DAP__E6614103E7213E2F-if01 @ 1000000 baud
+Total blocks: 27
+Retry limit: 3 attempts per block
+Failure threshold: 5 blocks
+============================================================
+
+Transfer:   0% [                                      ] ETA:  --:--:-- | ------Transfer:   3% [█                            ] ETA:   0:00:00 | OK (Retries: 0)Transfer:   7% [██                           ] ETA:   0:00:45 | OK (Retries: 0)Transfer:  11% [███                          ] ETA:   0:00:58 | OK (Retries: 0)Transfer:  14% [████                         ] ETA:   0:01:03 | OK (Retries: 0)Transfer:  18% [█████                        ] ETA:   0:01:04 | OK (Retries: 0)Transfer:  22% [██████                       ] ETA:   0:01:04 | OK (Retries: 0)Transfer:  25% [███████                      ] ETA:   0:01:02 | OK (Retries: 0)Transfer:  29% [████████                     ] ETA:   0:01:00 | OK (Retries: 0)Transfer:  33% [█████████                    ] ETA:   0:00:58 | OK (Retries: 0)Transfer:  37% [██████████                   ] ETA:   0:00:56 | OK (Retries: 0)Transfer:  40% [███████████                  ] ETA:   0:00:53 | OK (Retries: 0)Transfer:  44% [████████████                 ] ETA:   0:00:50 | OK (Retries: 0)Transfer:  48% [█████████████                ] ETA:   0:00:47 | OK (Retries: 0)Transfer:  51% [███████████████              ] ETA:   0:00:44 | OK (Retries: 0)Transfer:  55% [████████████████             ] ETA:   0:00:40 | OK (Retries: 0)Transfer:  59% [█████████████████            ] ETA:   0:00:37 | OK (Retries: 0)Transfer:  62% [██████████████████           ] ETA:   0:00:34 | OK (Retries: 0)Transfer:  66% [███████████████████          ] ETA:   0:00:31 | OK (Retries: 0)Transfer:  70% [████████████████████         ] ETA:   0:00:27 | OK (Retries: 0)Transfer:  74% [█████████████████████        ] ETA:   0:00:24 | OK (Retries: 0)Transfer:  77% [██████████████████████       ] ETA:   0:00:20 | OK (Retries: 0)Transfer:  81% [███████████████████████      ] ETA:   0:00:17 | OK (Retries: 0)Transfer:  85% [████████████████████████     ] ETA:   0:00:14 | OK (Retries: 0)Transfer:  88% [█████████████████████████    ] ETA:   0:00:10 | OK (Retries: 0)Transfer:  92% [██████████████████████████   ] ETA:   0:00:07 | OK (Retries: 0)Transfer:  96% [███████████████████████████  ] ETA:   0:00:03 | OK (Retries: 0)Transfer: 100% [█████████████████████████████] ETA:  00:00:00 | OK (Retries: 0)Transfer: 100% [█████████████████████████████] Time:  0:01:35 | OK (Retries: 0)
+
+============================================================
+Transfer Summary
+============================================================
+Total blocks: 27
+Successful: 27 (100.0%)
+Failed: 0
+Total retries: 0
+
+[SUCCESS] All blocks transferred successfully!
+============================================================
+
+
+Script done on 2026-08-20 11:05:39+02:00 [COMMAND_EXIT_CODE="0"]
