@@ -1,0 +1,48 @@
+diff --git a/bao1x-boot/uf2send.py b/bao1x-boot/uf2send.py
+index 29cc095..65ef568 100644
+--- a/bao1x-boot/uf2send.py
++++ b/bao1x-boot/uf2send.py
+@@ -23,6 +23,31 @@ RETRY_TIMES = 3  # Number of retries per block
+ RETRY_LIMIT = 5  # Maximum failed blocks before quitting
+ RESPONSE_TIMEOUT = 0.5  # 500ms timeout for device response
+ 
++# LOCAL PATCH, not upstream (sources/xous-core is a gitignored, separately
++# tracked checkout of betrusted-io/xous-core -- see baochip-1x-experiments
++# docs/04-bringup-log.md, 2026-08-20). The single unpaced ser.write() below
++# used to send each block reliably drops characters at 1000000 baud with no
++# flow control -- confirmed on hardware the same day, same symptom this
++# file's own 'localecho off' preamble already works around a few lines down
++# ("we need to slow down the protocol... due to lag in processing local
++# echo"). That fix was never carried over to the block-transfer path itself.
++# 5ms/char is fine for a small (E1, 27-block) shim-only image (~1.5 minutes
++# total) but is NOT viable at the full kernel image's scale (G2, 11584
++# blocks would take hours at this rate) -- recalibrate (smaller delay, or
++# chunked rather than per-character pacing) before relying on this for G2.
++CHAR_SEND_DELAY = 0.005
++
++
++def _paced_write(ser: serial.Serial, s: str, delay: float = CHAR_SEND_DELAY) -> None:
++    if delay <= 0:
++        ser.write(s.encode('utf-8'))
++        ser.flush()
++        return
++    for ch in s:
++        ser.write(ch.encode('utf-8'))
++        ser.flush()
++        time.sleep(delay)
++
+ 
+ @dataclass
+ class BlockInfo:
+@@ -161,9 +186,8 @@ def send_uf2_block(
+             # Clear input buffer before sending
+             ser.reset_input_buffer()
+             
+-            # Send the block
+-            ser.write(message.encode('utf-8'))
+-            ser.flush()
++            # Send the block (paced -- see CHAR_SEND_DELAY above)
++            _paced_write(ser, message)
+             
+             # Wait for response
+             success, error_msg = wait_for_response(
