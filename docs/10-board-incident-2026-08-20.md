@@ -167,12 +167,42 @@ rewritten, no JTAG is exposed, no hard reset exists beyond what's already
 been tried, the one DUART observable is unrouted on Dabao — applies here
 unchanged.
 
+## Renode reproduction attempt (2026-08-20, same day)
+
+**Does not reproduce under default configuration.** Re-ran
+`emulation/renode/tests/linux.robot` (unchanged since this morning's A7
+pass, and nothing kernel-side changed this session) — clean pass again,
+35.27s, all the way through login, `uname`, and the `sleep 1` timer sanity
+check. This is the third documented instance of the exact blind-spot
+pattern `07` already logged twice: Renode's `cpu: CPU.VexRiscv @ sysbus`
+(`emulation/renode/bao1x.repl:41`) is a generic model with `timeProvider:
+clint` backing its time CSRs — it has no way to express "this specific
+VexRiscv RTL build doesn't implement `time`/`timeh`," the same gap
+`firmware/bao1x-sbi/main.c`'s own comment already names for the sibling
+`mcounteren`/`scounteren` pair ("Renode does implement them").
+
+**Tried making it reproduce via `sysbus.cpu CSRValidation Full`** — Renode
+does expose a stricter validation level (default is `PrivilegeLevel`,
+which checks access rights but not whether a CSR is actually implemented;
+`Full` is presumably the one that would). Not a clean result either way:
+even the bare-metal shim alone — a few thousand instructions to
+`SBI:csr-done`, no kernel, no cramfs — never finished booting within ~2
+minutes of continuous 100%-CPU execution under `Full`, against a ~1-2
+second boot normally. Two separate attempts had to be force-killed
+(`kill -9`); `timeout` and the harness's own task-stop did not reach the
+underlying Renode process, which kept running and consuming CPU after
+both. Whatever `Full` validation costs per CSR access in this Renode
+build, it is not practical to use for a live repro on a timescale that
+fits this session. Not treated as a negative result — just an
+unattempted one, honestly reported as a dead end rather than left
+implied-but-untested.
+
 ## What to try next
 
-1. **Reproduce the panic in Renode.** If it doesn't reproduce, that is
-   itself worth recording precisely — a third documented instance of
-   emulation not catching a real-hardware timer/CSR gap, following the two
-   `07` already logged.
+1. ~~**Reproduce the panic in Renode.**~~ **Done — does not reproduce**
+   under default config (see above); `CSRValidation=Full` was tried as a
+   way to force it and abandoned as impractically slow, not as a negative
+   result.
 2. **Fix the `time`/`timeh` gap** (SBI-side trap-and-emulate, or a kernel
    probe) before this kernel build is ever booted again, on any board.
    Whatever caused the silence, there is no reason to hand a second board
