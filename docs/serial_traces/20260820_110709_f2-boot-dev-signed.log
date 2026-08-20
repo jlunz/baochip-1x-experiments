@@ -1,0 +1,27 @@
+Script started on 2026-08-20 11:07:09+02:00 [COMMAND="tools/boot1-cmd.py --port /dev/serial/by-id/usb-Raspberry_Pi_Debug_Probe__CMSIS-DAP__E6614103E7213E2F-if01 --baud 1000000 --wait 8 boot" <not executed on terminal>]
+--- sending: 'boot' ---
+--- reply ---
+boot
+Stopping USB...
+Booting with key 3/3(dev )
+Developer key detected, ensuring secrets are erased
+SBI:entry
+SBI:duart-ok
+SBI:uart-init
+SBI:se0-released
+SBI:dtb-copied
+SBI:medeleg
+SBI:mideleg
+SBI:mie
+SBI:extmask
+SBI:satp
+SBI:stvec
+SBI:sscratch
+SBI:sie
+SBI:mcounteren-absent
+SBI:scounteren-absent
+SBI:csr-done
+SBI:shim-only -- not entering kernel
+
+
+Script done on 2026-08-20 11:07:11+02:00 [COMMAND_EXIT_CODE="0"]

@@ -989,3 +989,58 @@ including `Paranoid mode: 0/0` and both revocation tables, is byte-identical.
 **Gate for E: holds.** Last fully reversible point. Proceeding to block F —
 already covered by the explicit decision to run the full D-onward sequence,
 including the dev-signed boot, on this board.
+
+### Block F: dev-signed boot, `DEVELOPER_MODE` burned as expected
+
+**F2** (`docs/serial_traces/20260820_110709_f2-boot-dev-signed.log`):
+`boot` issued through the same script-wrapped `boot1-cmd.py` process that
+captured the reply, per the doc's rule for this one step. Got the full
+marker sequence through `SBI:shim-only -- not entering kernel`, but the
+capture cut off right there without reaching `SBI:alive` —
+`boot1-cmd.py`'s 0.6s-past-last-byte deadline expired in the gap before the
+first heartbeat line, exactly the failure mode `09`'s own port-ownership
+note warns about. Not a re-run of `boot` (that's irreversible and only
+needed once) — instead confirmed the heartbeat with a separate passive
+`tio` listen (no send, no reset, safe: the risky window is
+issuing-`boot`-to-first-marker, already well past). Confirmed clean:
+`SBI:alive` present, and once past an initial ~20-line burst (backlog from
+the gap since anyone last read the port), settled to lines exactly 1.000s
+apart (`32.577, 33.577, … 39.577`) — real heartbeat, not the mcycle-stall
+fallback. F2 and F3 both pass.
+
+**F4** required reconnecting USB-C data, which had been deliberately
+removed after block D — the SE0 test needs a real USB device to check
+re-enumeration of, and there wasn't one on VBUS-only power. User reconnected
+it. `board-reset.py` pulsed (no physical replug);
+`usb-Baochip_Baochip-1x_J0BTA9-if00` reappeared in `/dev/serial/by-id/`
+within ~500ms, `lsusb` confirmed `1d50:6196` present. **F4 passes** — the
+fix for "the single most annoying failure mode of the previous session"
+holds on hardware.
+
+One live gotcha, worth recording since it produced a confusing read in the
+moment: right after F4's reset, `boot1-cmd.py --port $PROBE` came back with
+~350 lines of `SBI:alive` under `--- buffered before send ---` — looked like
+the shim was still running, uninterrupted by the reset. It wasn't: that was
+*stale* data, a kernel tty-buffer backlog accumulated on `$PROBE` across the
+long gap since anything last read it (back around F2/F3), surfaced by
+`boot1-cmd.py`'s own drain-before-send step. The actual live reply to a bare
+nudge was `(silence)` — because, exactly as blocks D/F4 established, native
+USB being connected again had already moved the console to
+`usb-Baochip_Baochip-1x_J0BTA9-if00`. Checking there directly confirmed
+boot1's REPL, reachable, same bootwait-enabled banner as every other reset
+on this unit.
+
+**F5** (`docs/serial_traces/20260820_114308_f5-audit-post-boot.log`), read
+over the native CDC console: `== IN DEVELOPER MODE ==` present,
+`Erase proof: erased` (was `uninit or access denied`), and the
+`** System did not meet minimum requirements for security **` footer —
+exactly the expected consequences, nothing else. Diffed against E2: those
+three lines are the *entire* diff. `Paranoid mode: 0/0`, `Possible attack
+attempts: 0`, `auto-audit limit: 3` (unchanged — already at the cap from
+earlier resets), and both revocation tables are byte-identical.
+
+**Gate for F: holds.** The flash-and-handover path is proven on silicon,
+without Linux ever executing. `07`'s control-group gap is now permanently
+open (this was the board burning `DEVELOPER_MODE`, per the deliberate
+decision recorded above) — C4's transcript remains the only never-dev-moded
+record of this unit that will ever exist. Proceeding to block G.
