@@ -221,3 +221,100 @@ implied-but-untested.
    answer to — a read of one-way counter slots 65/66/67 off the die itself,
    which is the one measurement that would turn "best-supported
    explanation" into a fact.
+
+## Addendum — bench recovery session (2026-08-20, later same day)
+
+Hardware *was* touched this time. A guided recovery pass reran every
+bench vector under proper controls. Two results overturn earlier
+conclusions in this document, and a third sharpens the diagnosis. The
+board is still dead — but for a reason now measured rather than assumed.
+
+### The prior "full power cycles" were never power cycles
+
+**The bench back-powers the board through its IO pins.** The ESPHome
+lines (`RST_N` on GPIO 15, `PROG` on GPIO 14) idle at 3.3 V and the Pi
+debug probe's UART TX idles high; that current leaks through the chip's
+IO ESD diodes into the 3V3 rail and keeps the core alive. Removing VBUS
+and USB-C — the "full power cycle" recorded at ~14:2x above — left those
+lines driving the pins, so **3V3 never collapsed**. That single fact
+invalidates the strongest recovery claim in the timeline: the board was
+not de-powered, it was held in its latched state the whole time. It also
+explains the persistent ~24 mA and why `AORSTn` appeared inert.
+
+A genuine cold cycle required pulling power from the **debug probe and
+ESPHome as well**. Only then did the meter read 3V3 = 0.0 V. (Note:
+ESPHome's GPIO switches default to OFF — line low, i.e. `RST_N` and
+`PROG` asserted — after an ESPHome reboot; both must be set high before
+the board is re-powered or it comes up held in reset.)
+
+### What the pass established
+
+| Step | Result |
+|---|---|
+| Triage (reset + 1 Mbaud capture) | SILENT, 0 bytes, USB (`1d50:6196`) absent. |
+| Baud scan, 14 rates 9600–2 M | Nothing at any rate — not a shifted-clock console. |
+| `uart-loopback.py` at 1 Mbaud | PASS, byte-exact: probe, USB, host, leads all good. |
+| Re-seat pins 15/16 + meter | VBUS 4.93 V, 3V3 3.29 V, 24.6 mA. Power and link both good; silence is the board's. |
+| **True cold cycle** (3V3 verified 0 V) | Re-powers to **24 mA, still SILENT**. |
+| `AORSTn` hold, cold-booted chip | 24→22→24 mA: no pre-PLL dip, no PLL step — the only routed reset does not re-run boot0 from the parked state. |
+
+The receive-path gap this document flagged (continuity "not
+independently re-checked with a meter") is now closed: loopback passed
+and the leads were re-seated, with power confirmed present, and the
+board was still silent. The silence is the board, not the rig.
+
+### The silence is post-PLL — which contradicts this document's own lead
+
+The cold-boot draw is **~24 mA**, not the ~14 mA of `07`'s `VL7NR0`.
+`07` established 14 mA as a *pre-PLL* (48 MHz) halt; 24 mA is a core at
+~350 MHz. So boot0 runs, **gets past `init_clock_asic_350mhz`
+(`bao1x.rs:142`)**, and then dies or hangs at a **post-PLL, pre-console**
+gate and parks at full clock. Silent, because that `die()` path prints
+only on the unrouted DUART.
+
+This **rules out** the "best-supported explanation" argued above — a
+`bao1x.rs:62` paranoid-mode desync is *pre*-PLL and would sit near
+14 mA. The two incident boards did not die of the same thing: `VL7NR0`
+pre-PLL, `J0BTA9` post-PLL. The identical "silent brick" signature is
+just what *any* pre-console `die()` looks like on a board that routes no
+DUART; it does not imply a shared trigger. The post-PLL, pre-console
+gates that fit are deterministic and silicon-adjacent: the TRNG
+stuck-value health check in `Csprng::new()` (`bao1x.rs:148`) or the
+SHA-512 KAT (`bao1x.rs:211`).
+
+Because a **verified 0 V cold start reproduces the failure**, it is
+non-volatile or hardware — not a clearable latch. The kernel panic
+itself writes no RRAM and no fuses, so it has no mechanism to have
+*caused* this; the two are most likely coincident, and the cold cycle is
+simply what finally exposed that the state is not recoverable.
+
+### The panic has a located cause, not a missing feature
+
+Separately, item 2 of "What to try next" mis-frames the fix. The shim
+**already emulates** `rdtime`/`rdtimeh` — `trap.c` `handle_illegal()` —
+and the emulation is simply mis-masked. The match uses `0xfff07fffu`,
+which clears rs1 but **not rd**, against constants that encode `rd = x0`,
+so only `csrr x0, time` (never compiler-emitted) matches. Any real read
+(`rd != 0`) falls through to `forward_to_s(..., ILLEGAL)` and lands in
+the kernel. The G3 panic was exactly this: `get_cycles64` did
+`csrr a5, timeh` (`badaddr c81027f3`, rd = x15) → forwarded → panic. The
+fix is one nibble: mask rd out too — `(insn & 0xfff0707fu) == 0xc0102073u
+|| (insn & 0xfff0707fu) == 0xc8102073u`. It was dormant only because no
+kernel had reached `time_init()` on hardware before this session.
+
+### Revised next steps
+
+- **Long unpowered soak** (item 3): now **low probability**, not merely
+  "low." A verified-0 V cold boot already reproduces the fault, so a
+  longer soak only helps against a slow-draining analog node a
+  ~60-second cold hold missed. Near-zero cost; leave it fully
+  disconnected overnight and retry once, but do not expect recovery.
+- **Escalation** (item 5): the ask can now be sharper than `07`'s. The
+  fault is **post-PLL, pre-console (24 mA)**, not the pre-PLL `:62`
+  region — so, alongside reading OWC slots 65/66/67, ask Baochip to
+  check the **TRNG-health and SHA-KAT path** off the die. That is where
+  the current localizes it.
+- **Before any next board** (item 4): land the `trap.c` rd-mask fix
+  first. `PROG + RESET` is also confirmed useless for a board in this
+  state — `PROG` is sampled by boot1's `get_key()`, downstream of a
+  boot0 halt, so it can never be reached here.
