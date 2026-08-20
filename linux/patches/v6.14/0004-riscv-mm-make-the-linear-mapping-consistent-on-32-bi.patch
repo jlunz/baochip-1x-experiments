@@ -1,4 +1,4 @@
-From 3f26f6d0f8a6ef0821c79348e86f73c21a8daec4 Mon Sep 17 00:00:00 2001
+From ad7988f2845c687421a9a6fe2ba91581f356e009 Mon Sep 17 00:00:00 2001
 From: Claude <noreply@anthropic.com>
 Date: Tue, 14 Jul 2026 19:22:59 +0200
 Subject: [PATCH 04/22] riscv: mm: make the linear mapping consistent on 32-bit
@@ -95,6 +95,3 @@ index 486ad0ece..cf9e81053 100644
  
  	memory_limit = KERN_VIRT_SIZE;
  
--- 
-2.55.0
-

@@ -1,4 +1,4 @@
-From 7357a3ac422131bf454f4adadcfbdc7a765fa5d3 Mon Sep 17 00:00:00 2001
+From b71fd257d69a6e84a7de042398ad54b361a5b148 Mon Sep 17 00:00:00 2001
 From: Claude <noreply@anthropic.com>
 Date: Wed, 15 Jul 2026 11:32:32 +0200
 Subject: [PATCH 09/22] gpiolib: cdev: use kvzalloc for struct
@@ -57,6 +57,3 @@ index 107d75558..0ae570a8c 100644
  
  	return 0;
  }
--- 
-2.55.0
-

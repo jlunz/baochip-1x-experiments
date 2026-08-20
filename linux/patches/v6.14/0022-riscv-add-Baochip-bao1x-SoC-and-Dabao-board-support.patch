@@ -1,4 +1,4 @@
-From 130921f5cc1404512e97407f627f472a47bb70e4 Mon Sep 17 00:00:00 2001
+From d7d3895a731542f293dea26e41506726728d5462 Mon Sep 17 00:00:00 2001
 From: Claude <noreply@anthropic.com>
 Date: Wed, 15 Jul 2026 17:39:12 +0200
 Subject: [PATCH 22/22] riscv: add Baochip bao1x SoC and Dabao board support
@@ -21,7 +21,7 @@ Co-developed-by: Claude <noreply@anthropic.com>
  arch/riscv/Kconfig.socs                       |   6 +
  arch/riscv/boot/dts/Makefile                  |   1 +
  arch/riscv/boot/dts/baochip/Makefile          |   2 +
- arch/riscv/boot/dts/baochip/bao1x.dtsi        | 173 ++++++++++++++++++++
+ arch/riscv/boot/dts/baochip/bao1x.dtsi        | 173 ++++++++++++++++++
  arch/riscv/boot/dts/baochip/dabao.dts         |  68 +++++++
  arch/riscv/configs/baochip_dabao_defconfig    | 102 +++++++++++
  8 files changed, 370 insertions(+)
@@ -107,7 +107,7 @@ index 000000000..25e76525e
 +dtb-$(CONFIG_ARCH_BAOCHIP) += dabao.dtb
 diff --git a/arch/riscv/boot/dts/baochip/bao1x.dtsi b/arch/riscv/boot/dts/baochip/bao1x.dtsi
 new file mode 100644
-index 000000000..bfaa0cc8b
+index 000000000..9c8137188
 --- /dev/null
 +++ b/arch/riscv/boot/dts/baochip/bao1x.dtsi
 @@ -0,0 +1,173 @@
@@ -466,6 +466,3 @@ index 000000000..33b89bb43
 +# CONFIG_FTRACE is not set
 +# CONFIG_RUNTIME_KERNEL_TESTING_MENU is not set
 +# CONFIG_RUNTIME_TESTING_MENU is not set
--- 
-2.55.0
-

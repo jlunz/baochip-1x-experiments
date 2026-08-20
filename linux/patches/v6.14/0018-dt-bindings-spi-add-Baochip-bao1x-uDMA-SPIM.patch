@@ -1,4 +1,4 @@
-From 58ab68352176386a5c62b6dd666bea576832506f Mon Sep 17 00:00:00 2001
+From f4e96dd94f2c5ca452e9cf98dc0e90bfebcfe0e2 Mon Sep 17 00:00:00 2001
 From: Claude <noreply@anthropic.com>
 Date: Wed, 15 Jul 2026 15:59:18 +0200
 Subject: [PATCH 18/22] dt-bindings: spi: add Baochip bao1x uDMA SPIM
@@ -84,6 +84,3 @@ index 000000000..5543fcd46
 +            spi-max-frequency = <10000000>;
 +        };
 +    };
--- 
-2.55.0
-

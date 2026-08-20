@@ -1,4 +1,4 @@
-From 4df35e14e2417920467130ecb67aa76baf88627b Mon Sep 17 00:00:00 2001
+From fc1a8c824cf8a252ae71acc3a73dfeefbc2b7dd0 Mon Sep 17 00:00:00 2001
 From: Claude <noreply@anthropic.com>
 Date: Tue, 14 Jul 2026 19:39:34 +0200
 Subject: [PATCH 06/22] riscv: allow the XIP kernel entry at an offset inside
@@ -141,6 +141,3 @@ index cf9e81053..cde387464 100644
  #else
  	kernel_map.page_offset = _AC(CONFIG_PAGE_OFFSET, UL);
  	kernel_map.phys_addr = (uintptr_t)(&_start);
--- 
-2.55.0
-

@@ -1,4 +1,4 @@
-From c06af14a65a36232f483f9f4c215e9b7626ff3e4 Mon Sep 17 00:00:00 2001
+From c332aec106164f9cd66b94ab8ad6f73a83407f0a Mon Sep 17 00:00:00 2001
 From: Claude <noreply@anthropic.com>
 Date: Wed, 15 Jul 2026 11:14:44 +0200
 Subject: [PATCH 12/22] dt-bindings: serial: add Baochip bao1x uDMA UART and
@@ -19,7 +19,7 @@ Co-developed-by: Claude <noreply@anthropic.com>
 
 diff --git a/Documentation/devicetree/bindings/serial/baochip,bao1x-duart.yaml b/Documentation/devicetree/bindings/serial/baochip,bao1x-duart.yaml
 new file mode 100644
-index 000000000..96467a27c
+index 000000000..a724e723f
 --- /dev/null
 +++ b/Documentation/devicetree/bindings/serial/baochip,bao1x-duart.yaml
 @@ -0,0 +1,37 @@
@@ -136,6 +136,3 @@ index 000000000..eae6a14f4
 +        interrupt-names = "rx", "tx";
 +        clock-frequency = <100000000>;
 +    };
--- 
-2.55.0
-

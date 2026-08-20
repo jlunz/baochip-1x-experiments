@@ -1,4 +1,4 @@
-From b0a1108fdf48eb55c8cf92db1ab44b6c1b0bd8e3 Mon Sep 17 00:00:00 2001
+From 5fc744557fa00c04426cc4a037d2481af1d6feb1 Mon Sep 17 00:00:00 2001
 From: Claude <noreply@anthropic.com>
 Date: Wed, 15 Jul 2026 11:36:07 +0200
 Subject: [PATCH 14/22] dt-bindings: pinctrl: add Baochip bao1x IOX
@@ -98,6 +98,3 @@ index 000000000..49b572fd2
 +            groups = "PB13", "PB14";
 +        };
 +    };
--- 
-2.55.0
-

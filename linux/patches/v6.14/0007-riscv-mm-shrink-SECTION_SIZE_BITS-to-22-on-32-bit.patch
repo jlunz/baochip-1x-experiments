@@ -1,4 +1,4 @@
-From 84b9a4e439d0207621b28e8c842f582103f1ee4d Mon Sep 17 00:00:00 2001
+From 35165e1b0b33dfbf72f17acaf1e12478d10e23e1 Mon Sep 17 00:00:00 2001
 From: Claude <noreply@anthropic.com>
 Date: Wed, 15 Jul 2026 06:03:25 +0200
 Subject: [PATCH 07/22] riscv: mm: shrink SECTION_SIZE_BITS to 22 on 32-bit
@@ -50,6 +50,3 @@ index 2f901a410..b8e69c274 100644
  #endif /* CONFIG_SPARSEMEM */
  
  #endif /* _ASM_RISCV_SPARSEMEM_H */
--- 
-2.55.0
-

@@ -1,4 +1,4 @@
-From 1afc8ec5714753b39892dd842133b9b8978e9ef7 Mon Sep 17 00:00:00 2001
+From 90a5dc66452c148ea30374d9cac9d234bac42909 Mon Sep 17 00:00:00 2001
 From: Claude <noreply@anthropic.com>
 Date: Tue, 14 Jul 2026 19:22:15 +0200
 Subject: [PATCH 02/22] riscv: mm: fix the XIP trampoline mapping on 32-bit
@@ -39,6 +39,3 @@ index 15b2eda4c..5c9e18467 100644
  #endif
  
  	/*
--- 
-2.55.0
-

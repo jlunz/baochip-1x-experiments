@@ -1,4 +1,4 @@
-From b5982a37c72ab3bae07375de42b90ae8c93b89b0 Mon Sep 17 00:00:00 2001
+From 712fa2ebd416755954192e18e3bb0617d7bf3651 Mon Sep 17 00:00:00 2001
 From: Claude <noreply@anthropic.com>
 Date: Wed, 15 Jul 2026 10:52:42 +0200
 Subject: [PATCH 11/22] irqchip: add Baochip bao1x interrupt controller drivers
@@ -325,6 +325,3 @@ index 000000000..c72ff3904
 +}
 +
 +IRQCHIP_DECLARE(bao1x_irqarray, "baochip,bao1x-irqarray", bao1x_irqarray_init);
--- 
-2.55.0
-

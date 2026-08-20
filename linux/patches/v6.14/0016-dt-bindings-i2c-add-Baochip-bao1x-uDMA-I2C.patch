@@ -1,4 +1,4 @@
-From a1a7d055ce7ba485f4350726fee3773fe765cf0b Mon Sep 17 00:00:00 2001
+From f4756489eebae8f4d4bbe1a1f71efa18b62f8204 Mon Sep 17 00:00:00 2001
 From: Claude <noreply@anthropic.com>
 Date: Wed, 15 Jul 2026 15:47:08 +0200
 Subject: [PATCH 16/22] dt-bindings: i2c: add Baochip bao1x uDMA I2C
@@ -81,6 +81,3 @@ index 000000000..47a776757
 +        #address-cells = <1>;
 +        #size-cells = <0>;
 +    };
--- 
-2.55.0
-
