@@ -1,0 +1,7 @@
+Script started on 2026-08-20 11:47:40+02:00 [COMMAND="python3 /tmp/calibrate3.py" <not executed on terminal>]
+[char 0.2ms] 10/10 correct, avg 277.6ms/send -- full transfer ~= 53.6 min
+[char 0.15ms] 10/10 correct, avg 227.5ms/send -- full transfer ~= 43.9 min
+[char 0.1ms] 10/10 correct, avg 182.7ms/send -- full transfer ~= 35.3 min
+[char 0.05ms] 10/10 correct, avg 152.5ms/send -- full transfer ~= 29.4 min
+
+Script done on 2026-08-20 11:48:28+02:00 [COMMAND_EXIT_CODE="0"]

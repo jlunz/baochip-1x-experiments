@@ -1,0 +1,42 @@
+Script started on 2026-08-20 11:46:35+02:00 [COMMAND="python3 /tmp/calibrate2.py" <not executed on terminal>]
+test string length: 688 chars
+
+[char 0.3ms] 8/8 correct, avg 317.0ms/send -- full transfer (11584 blocks) ~= 61.2 min
+  [chunk8/1ms] trial 0: FAIL elapsed=0.107s reply_len=516 sent_len=688
+  [chunk8/1ms] trial 1: FAIL elapsed=0.103s reply_len=516 sent_len=688
+  [chunk8/1ms] trial 2: FAIL elapsed=0.107s reply_len=516 sent_len=688
+  [chunk8/1ms] trial 3: FAIL elapsed=0.101s reply_len=516 sent_len=688
+  [chunk8/1ms] trial 4: FAIL elapsed=0.102s reply_len=516 sent_len=688
+  [chunk8/1ms] trial 5: FAIL elapsed=0.102s reply_len=512 sent_len=688
+  [chunk8/1ms] trial 6: FAIL elapsed=0.108s reply_len=516 sent_len=688
+  [chunk8/1ms] trial 7: FAIL elapsed=0.104s reply_len=516 sent_len=688
+[chunk8/1ms] 0/8 correct, avg 104.3ms/send -- full transfer (11584 blocks) ~= 20.1 min
+  [chunk16/1ms] trial 0: FAIL elapsed=0.053s reply_len=490 sent_len=688
+  [chunk16/1ms] trial 1: FAIL elapsed=0.053s reply_len=491 sent_len=688
+  [chunk16/1ms] trial 2: FAIL elapsed=0.053s reply_len=490 sent_len=688
+  [chunk16/1ms] trial 3: FAIL elapsed=0.051s reply_len=495 sent_len=688
+  [chunk16/1ms] trial 4: FAIL elapsed=0.050s reply_len=495 sent_len=688
+  [chunk16/1ms] trial 5: FAIL elapsed=0.057s reply_len=491 sent_len=688
+  [chunk16/1ms] trial 6: FAIL elapsed=0.052s reply_len=485 sent_len=688
+  [chunk16/1ms] trial 7: FAIL elapsed=0.055s reply_len=488 sent_len=688
+[chunk16/1ms] 0/8 correct, avg 53.0ms/send -- full transfer (11584 blocks) ~= 10.2 min
+  [chunk32/2ms] trial 0: FAIL elapsed=0.049s reply_len=496 sent_len=688
+  [chunk32/2ms] trial 1: FAIL elapsed=0.049s reply_len=494 sent_len=688
+  [chunk32/2ms] trial 2: FAIL elapsed=0.049s reply_len=498 sent_len=688
+  [chunk32/2ms] trial 3: FAIL elapsed=0.051s reply_len=495 sent_len=688
+  [chunk32/2ms] trial 4: FAIL elapsed=0.051s reply_len=493 sent_len=688
+  [chunk32/2ms] trial 5: FAIL elapsed=0.052s reply_len=489 sent_len=688
+  [chunk32/2ms] trial 6: FAIL elapsed=0.050s reply_len=493 sent_len=688
+  [chunk32/2ms] trial 7: FAIL elapsed=0.051s reply_len=500 sent_len=688
+[chunk32/2ms] 0/8 correct, avg 50.3ms/send -- full transfer (11584 blocks) ~= 9.7 min
+  [chunk64/2ms] trial 0: FAIL elapsed=0.025s reply_len=473 sent_len=688
+  [chunk64/2ms] trial 1: FAIL elapsed=0.026s reply_len=473 sent_len=688
+  [chunk64/2ms] trial 2: FAIL elapsed=0.025s reply_len=473 sent_len=688
+  [chunk64/2ms] trial 3: FAIL elapsed=0.025s reply_len=474 sent_len=688
+  [chunk64/2ms] trial 4: FAIL elapsed=0.025s reply_len=473 sent_len=688
+  [chunk64/2ms] trial 5: FAIL elapsed=0.025s reply_len=473 sent_len=688
+  [chunk64/2ms] trial 6: FAIL elapsed=0.025s reply_len=473 sent_len=688
+  [chunk64/2ms] trial 7: FAIL elapsed=0.025s reply_len=473 sent_len=688
+[chunk64/2ms] 0/8 correct, avg 25.0ms/send -- full transfer (11584 blocks) ~= 4.8 min
+
+Script done on 2026-08-20 11:47:19+02:00 [COMMAND_EXIT_CODE="0"]

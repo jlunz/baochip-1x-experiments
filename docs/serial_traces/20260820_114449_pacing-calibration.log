@@ -1,0 +1,31 @@
+Script started on 2026-08-20 11:44:49+02:00 [COMMAND="python3 /tmp/calibrate.py" <not executed on terminal>]
+=== char delay 1ms ===
+  trial 0: elapsed=0.106s correct=True reply_head='echo abcdefghijabcdefghijabcdefghijabcdefghijabcdefghijabcde'
+  trial 1: elapsed=0.102s correct=True reply_head='echo abcdefghijabcdefghijabcdefghijabcdefghijabcdefghijabcde'
+  trial 2: elapsed=0.099s correct=True reply_head='echo abcdefghijabcdefghijabcdefghijabcdefghijabcdefghijabcde'
+  trial 3: elapsed=0.101s correct=True reply_head='echo abcdefghijabcdefghijabcdefghijabcdefghijabcdefghijabcde'
+  => 4/4 correct, ~0.101s per send at this rate
+
+=== char delay 0.3ms ===
+  trial 0: elapsed=0.038s correct=True reply_head='echo abcdefghijabcdefghijabcdefghijabcdefghijabcdefghijabcde'
+  trial 1: elapsed=0.035s correct=True reply_head='echo abcdefghijabcdefghijabcdefghijabcdefghijabcdefghijabcde'
+  trial 2: elapsed=0.039s correct=True reply_head='echo abcdefghijabcdefghijabcdefghijabcdefghijabcdefghijabcde'
+  trial 3: elapsed=0.036s correct=True reply_head='echo abcdefghijabcdefghijabcdefghijabcdefghijabcdefghijabcde'
+  => 4/4 correct, ~0.036s per send at this rate
+
+=== chunk 8 bytes / 2ms ===
+  trial 0: elapsed=0.024s correct=True reply_head='echo abcdefghijabcdefghijabcdefghijabcdefghijabcdefghijabcde'
+  trial 1: elapsed=0.024s correct=True reply_head='echo abcdefghijabcdefghijabcdefghijabcdefghijabcdefghijabcde'
+  trial 2: elapsed=0.024s correct=True reply_head='echo abcdefghijabcdefghijabcdefghijabcdefghijabcdefghijabcde'
+  trial 3: elapsed=0.024s correct=True reply_head='echo abcdefghijabcdefghijabcdefghijabcdefghijabcdefghijabcde'
+  => 4/4 correct, ~0.024s per send at this rate
+
+=== chunk 16 bytes / 3ms ===
+  trial 0: elapsed=0.019s correct=True reply_head='echo abcdefghijabcdefghijabcdefghijabcdefghijabcdefghijabcde'
+  trial 1: elapsed=0.020s correct=True reply_head='echo abcdefghijabcdefghijabcdefghijabcdefghijabcdefghijabcde'
+  trial 2: elapsed=0.019s correct=True reply_head='echo abcdefghijabcdefghijabcdefghijabcdefghijabcdefghijabcde'
+  trial 3: elapsed=0.020s correct=True reply_head='echo abcdefghijabcdefghijabcdefghijabcdefghijabcdefghijabcde'
+  => 4/4 correct, ~0.020s per send at this rate
+
+
+Script done on 2026-08-20 11:45:05+02:00 [COMMAND_EXIT_CODE="0"]

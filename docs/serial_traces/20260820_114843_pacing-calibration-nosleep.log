@@ -1,0 +1,4 @@
+Script started on 2026-08-20 11:48:43+02:00 [COMMAND="python3 /tmp/calibrate4.py" <not executed on terminal>]
+[char no-sleep] 15/15 correct, avg 115.6ms/send -- full transfer ~= 22.3 min
+
+Script done on 2026-08-20 11:49:00+02:00 [COMMAND_EXIT_CODE="0"]
