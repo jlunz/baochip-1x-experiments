@@ -799,3 +799,95 @@ disjoint files) and re-ran A1–A10 end to end on this branch, this host:
 
 Block A gate holds. Proceeding to block B (bench setup); B2 onward needs
 hands on the board.
+
+## 2026-08-20 — block B bench setup, block C baseline on `J0BTA9`
+
+Probe wired (pin 15/16 + GND), ESPHome `RST_N` wired to header pin 30 and
+confirmed (§ below), loopback host stack already known-good. Two host gaps
+found and fixed before touching the REPL: `python3-pyserial` was missing
+(`board-triage.py` needs it) and `util-linux-script` was missing (`script(1)`
+itself, which C4/F1/F2/G3 all wrap commands in) — both installed via `dnf`.
+`tools/boot1-cmd.py` was also not executable as shipped; `chmod +x`.
+
+**Continuous capture:** `tio -t -L` under a real pty (`script -qc "tio ..."
+/dev/null`), not the `tail -f /dev/null | tio ...` form tried first — that
+form stays "Connected" and never reads a byte from the device at all, silently.
+Confirmed by comparison: identical invocation under `script` read data
+immediately; under the pipe trick, zero bytes after two reset pulses and
+10+ seconds. `docs/serial_traces/` holds the logs from here on.
+
+**J0BTA9's native USB CDC console was live at first** (USB-C data connected)
+and, per `09` § E, `boot1` moved its console to USB serial a couple seconds
+into every boot, silencing `$PROBE` for REPL purposes past that point — caught
+by capturing both ports simultaneously and diffing. Switched to VBUS-only
+power, USB-C data removed; reset-and-capture afterward confirmed `USB is
+connected!` no longer fires and the console stays on `$PROBE` for the whole
+boot, which is what the rest of the run sheet assumes.
+
+C2 (`board-triage.py`): **ALIVE**, boot1 running, all stages seen
+(`boot0, boot0-console, boot1, boot1-usb, bootwait`).
+
+C3: every reset already prints `Boot bypassed because bootwait was enabled` —
+per `main.rs:190–194` that means bootwait-enabled units park at the REPL on
+*any* reset, not only a PROG+RESET one. Confirmed the REPL was genuinely live
+and responsive with a bare nudge rather than assuming the banner was enough;
+physical PROG press turned out not to be necessary on this unit.
+
+### Defect found: unpaced REPL sends drop characters at 1 Mbaud
+
+First C4 `audit` attempt came back as `audt` — not a REPL error, the board
+never received the `i`. Reproduced identically on a second attempt, then
+characterized with the REPL's own `echo`: longer strings lost more characters,
+in *different* positions each run (`echo abcdefghijklmnop` variously came back
+missing `b,f,h,n`, then `b,f,i,k,o`, etc.) — not a fixed-offset software bug,
+and not periodic. Board-to-host output, meanwhile, had been flawless across
+every capture so far, including long banners repeated identically on demand.
+The asymmetry points at the receive side specifically: this link has no flow
+control, and `boot1`'s REPL apparently cannot drain an unpaced burst at
+100,000 bytes/s (1 Mbaud). Confirmed by the fix: pacing sends at 5 ms/char —
+still 1 Mbaud on the wire, only the host-side write is spread out — produced
+a clean `echo` and a clean, complete `audit` on the first try, twice.
+
+**Fixed in `tools/boot1-cmd.py`** (ours, tracked): sends now go one character
+at a time with a flush and a 5 ms delay between them by default
+(`--char-delay` to change it, `0` to disable). This is the tool D5, E2, F5,
+G2, G6 and H4 all route REPL commands through, so it needed fixing before any
+of those, not after one flakes.
+
+**Not fixed: `sources/xous-core/bao1x-boot/uf2send.py`**, which E1 and G2 use
+to actually flash the board. `send_uf2_block()`'s `uf2 <base64>` write is a
+single unpaced `ser.write()` of the whole ~700-byte encoded block — the exact
+pattern just shown to drop characters. The file's own author already hit a
+version of this: the `localecho off` preamble a few lines down is sent one
+character at a time specifically because of "lag in processing local echo"
+(their comment) — but that fix wasn't carried over to the block-transfer path
+itself. Left unfixed here because `sources/xous-core` is a separate,
+gitignored, upstream checkout (`betrusted-io/xous-core`) with no local patch
+mechanism in this repo analogous to `linux/patches/`; a fix here would be lost
+on the next `fetch-sources.sh`. Likely bounded rather than dangerous —
+`uf2send.py` already retries per block on a failed ack, and every write stays
+inside boot1's own range check regardless of which bytes get corrupted — but
+expect elevated retry counts, and possibly hitting `RETRY_LIMIT` (5 blocks)
+more than the tool's own author anticipated, at E1. Worth pacing before
+relying on it, or patching upstream.
+
+C4 result, captured clean after the fix
+(`docs/serial_traces/20260820_104850_c4-j0bta9-audit.log`):
+
+- **No `== IN DEVELOPER MODE ==` line.** J0BTA9 is the never-dev-moded
+  reference `07` wanted — the control-group gap is closed.
+- `Next stage: key 2/2 (beta) -> 60060000` — still vendor beta firmware,
+  confirming it has never been touched by our dev-signed image.
+- `Paranoid mode: 0/0`, `Possible attack attempts: 0`, all revocations
+  `enabled` — healthy baseline, nothing to diff against later since C5 retires
+  this board for good right after.
+
+Investigation trail, oldest first, all under `docs/serial_traces/`:
+`20260820_104307_c4-j0bta9-audit.log` (the original `audt` failure),
+`20260820_104603_char-drop-investigation.log` (repeated `echo`/`bootwait`
+probes), `20260820_104620_char-drop-paced-test.log` (the pacing fix proven,
+including the first clean `audit`), `20260820_104850_c4-j0bta9-audit.log`
+(the official post-fix C4 transcript).
+
+Next: C5 (unplug and retire `J0BTA9`, physical — needs hands on the bench),
+then block D on the new board.

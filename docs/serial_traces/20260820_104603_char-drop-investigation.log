@@ -1,0 +1,29 @@
+Script started on 2026-08-20 10:46:03+02:00 [COMMAND="tools/boot1-cmd.py --port /dev/serial/by-id/usb-Raspberry_Pi_Debug_Probe__CMSIS-DAP__E6614103E7213E2F-if01 --baud 1000000 echo abcdefghijklmnop" <not executed on terminal>]
+--- sending: 'echo abcdefghijklmnop' ---
+--- reply ---
+ech abdfghjlmnp
+Command not recognized: ech
+Commands include: altboot, audit, boot, boardtype, bootwait, echo, idmode, ifr, localecho, lockdown, paranoid, reset, self_destruct, skipping, uf2
+
+
+
+Script done on 2026-08-20 10:46:04+02:00 [COMMAND_EXIT_CODE="0"]
+=== test 2: same command repeated ===
+Script started on 2026-08-20 10:46:04+02:00 [COMMAND="tools/boot1-cmd.py --port /dev/serial/by-id/usb-Raspberry_Pi_Debug_Probe__CMSIS-DAP__E6614103E7213E2F-if01 --baud 1000000 echo abcdefghijklmnop" <not executed on terminal>]
+--- sending: 'echo abcdefghijklmnop' ---
+--- reply ---
+ech acdegijklmop
+
+
+Script done on 2026-08-20 10:46:06+02:00 [COMMAND_EXIT_CODE="0"]
+=== test 3: bootwait check ===
+Script started on 2026-08-20 10:46:06+02:00 [COMMAND="tools/boot1-cmd.py --port /dev/serial/by-id/usb-Raspberry_Pi_Debug_Probe__CMSIS-DAP__E6614103E7213E2F-if01 --baud 1000000 bootwait check" <not executed on terminal>]
+--- sending: 'bootwait check' ---
+--- reply ---
+boowat cek
+Command not recognized: ech
+Commands include: altboot, audit, boot, boardtype, bootwait, echo, idmode, ifr, localecho, lockdown, paranoid, reset, self_destruct, skipping, uf2
+
+
+
+Script done on 2026-08-20 10:46:07+02:00 [COMMAND_EXIT_CODE="0"]
