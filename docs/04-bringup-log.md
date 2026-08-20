@@ -891,3 +891,74 @@ including the first clean `audit`), `20260820_104850_c4-j0bta9-audit.log`
 
 Next: C5 (unplug and retire `J0BTA9`, physical — needs hands on the bench),
 then block D on the new board.
+
+### Deliberate deviation: `J0BTA9` retasked as the block-D-onward target, not retired
+
+The user has a second board available but chose, explicitly and after being
+shown the consequence in plain terms, to skip C5 and run block D onward on
+`J0BTA9` itself rather than swap to it. This overrides `09`'s own board
+allocation table (*"`J0BTA9` | control | block C only, forever... Never
+dev-signed, never flashed"*) on purpose, not by accident — recorded here per
+the same principle the corrections section at the end of `09` states for
+itself: the reasoning is what stops a deviation like this from being read
+later as a mistake.
+
+**What this actually costs, plainly:** `07`'s control-group gap is now
+reopened for good. `J0BTA9` was, as of C4, the only confirmed never-dev-moded
+reference that exists — flashing it (E) and dev-signed-booting it (F) burns
+`DEVELOPER_MODE`, one-way, same as it would on any other unit. After F, there
+is no never-dev-moded baseline left anywhere, on this board or the spare
+(the spare's history is unknown, same gap `07` originally flagged for
+`J0BTA9` before C4 settled it). C4's own audit transcript
+(`docs/serial_traces/20260820_104850_c4-j0bta9-audit.log`) is therefore now
+the *only* record that will ever exist of this board in a never-dev-moded
+state — kept, not superseded, by whatever D5 captures next.
+
+Proceeding with D1–D6 on `J0BTA9`. Several are already satisfied by block C's
+own work rather than needing to be redone: D1 (plugged in), D3
+(`board-triage.py` ALIVE, run twice already), D4 (REPL reachable, same
+bootwait-enabled mechanism as C3) all stand. D2 (multimeter) was never run in
+block C — de-risked in practice by the board demonstrably running boot1
+across many resets, but not formally checked; D6's serial is already known
+(`J0BTA9`, from C4). D5 itself — `audit` plus, newly, `usb_speed` and
+`bootwait check` — still needs to be read fresh, since C4 only ran bare
+`audit` and the D gate specifically needs `bootwait check`.
+
+### D5: gate holds, but this board's `boot1` is older than our checked-out source — and possibly pre-dates a signature-bypass fix
+
+`audit` (`docs/serial_traces/20260820_105701_d5-audit-usbspeed-bootwait.log`):
+identical to C4, `Paranoid mode: 0/0`, `Possible attack attempts: 0`. `bootwait
+check`: **`Enable`** — the D gate holds, E is reversible.
+
+`usb_speed` came back `Command not recognized`, and so did `help` — not a
+send-corruption artifact (the echo was clean both times, unlike the earlier
+`audt` bug) but a real absence. The REPL's own hint string is the tell:
+this board prints `"Commands include: altboot, audit, boot, boardtype,
+bootwait, echo, idmode, ifr, localecho, lockdown, paranoid, reset,
+self_destruct, skipping, uf2"`; `sources/xous-core`'s current
+`repl.rs:1135` has that exact same string plus two commands this board
+doesn't have: **`require-pq` and `usb_speed`**. Same order otherwise —
+this reads as an older firmware build, not a different fork.
+
+That matters beyond one missing bare-read command. The local checkout's HEAD
+(`f7d8c7e`, all we have — `fetch-sources.sh` does `--depth 1`, so there's no
+older history to diff against directly) is titled *"fix the unsigned boot
+header vulnerability"* — per the PR, boot0/boot1 computed a post-header
+trampoline address wrong, letting unsigned code execute without the
+signature check ever running. Since both new commands and the vuln fix sit
+at the same HEAD our board's command list falls short of, the likely
+(not certain, given the shallow clone) reading is that **this board's `boot1`
+predates that fix too.**
+
+Assessed as not a reason to stop: the bypass matters against an adversary
+trying to defeat signing without a valid key; it doesn't change what E/F/H
+do when we're the ones deliberately using a legitimate dev key we already
+hold. The PR itself also notes boot0 is non-updateable on this hardware
+family regardless, so there would be nothing to patch at that layer even if
+we wanted to. Whether `boot1` itself is field-updateable (as opposed to
+boot0) is open — this project's own tooling never flashes it, only the
+"next stage" payload, so it hasn't come up before now. Continuing with block
+E on the user's explicit decision; this is recorded so a later reader
+doesn't mistake the missing commands for a tooling bug.
+
+**D gate: holds.** Proceeding to block E.
