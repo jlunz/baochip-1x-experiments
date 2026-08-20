@@ -1044,3 +1044,113 @@ without Linux ever executing. `07`'s control-group gap is now permanently
 open (this was the board burning `DEVELOPER_MODE`, per the deliberate
 decision recorded above) — C4's transcript remains the only never-dev-moded
 record of this unit that will ever exist. Proceeding to block G.
+
+### Block G: kernel panic, then the board went SILENT
+
+**G1:** rebuilt the full image, md5 `13a5ca7f…` reproduced exactly from A8.
+Branched `hw/flashed-13a5ca7f`.
+
+**G2** (`docs/serial_traces/20260820_115121_g2-uf2send-linux.log`): flashed
+`dabao-linux.uf2`, 11584 blocks, over `$PROBE` via the now-corrected
+`uf2send.py` local patch — **11584/11584 successful, 1 retry total**,
+confirming the pacing fix holds at real scale, not just on short REPL
+commands. Calibration for this is its own record
+(`docs/serial_traces/20260820_11{4449,4635,4740,4843}*.log`): every chunked
+write strategy tried failed outright (0/8 across 8/16/32/64-byte chunks at
+various inter-chunk delays) — the receiver cannot absorb any burst bigger
+than one byte — while character-by-character writes with *no* explicit
+delay, relying only on natural per-`write()`/`flush()` overhead (~170µs/char
+measured), gave 15/15 clean on a realistic ~683-char block. Fixed
+`tools/boot1-cmd.py` and the local `uf2send.py` patch accordingly; the
+original 5ms/char fix was correct but would have made this transfer take
+~11 hours instead of the ~23 minutes it actually took. Post-flash `audit`
+confirmed `Next stage: key 3/3 (dev ) -> 60060000` (in two pieces —
+`boot1-cmd.py`'s early-cutoff bug again, same as F2; the large image's own
+validation apparently takes long enough to trip the 0.6s re-arm window).
+
+**G3** (`docs/serial_traces/20260820_121709_g3-g4-kernel-boot.log`): drove
+the interactive session programmatically rather than with `miniterm` (same
+goal, more precisely controllable from here) — one hiccup where a first
+`boot` attempt via a custom script came back `Command not recognized: boot`
+despite `boot` being in its own hint list; retried via the already-proven
+`boot1-cmd.py` and it went through cleanly (`Stopping USB...`), so that read
+as a one-off send glitch in the throwaway script, not a real problem, and
+wasn't investigated further under the circumstances that followed.
+
+**Kernel boot got much further than G4 anticipates.** `docs/09` G4's stop
+condition is the kernel printing *nothing at all*. Instead: full SBI
+handshake, `bao1x-sbi: jumping to kernel`, complete Linux banner, memory
+zone setup, `Kernel command line: earlycon=sbi console=ttyBAO0
+root=mtd:rootfs rootfstype=cramfs ro` — then:
+
+```
+Oops - illegal instruction [#1]
+...
+epc : get_cycles64+0x0/0x12
+ ra : sched_clock_register+0xcc/0x222
+...
+[<c017049a>] get_cycles64+0x0/0x12
+[<c00b41d8>] tick_suspend+0x0/0x2
+[<c007fae8>] riscv_timer_init_dt+0x102/0x190
+[<c007f9b0>] timer_probe+0x54/0x8a
+[<c00732ca>] time_init+0x62/0x6e
+[<c0071790>] start_kernel+0x2ac/0x39e
+Kernel panic - not syncing: Fatal exception in interrupt
+```
+
+Faults at offset `+0x0` of `get_cycles64` — its very first instruction.
+Reads like a cycle-counter CSR read (`rdcycle`-shaped) this VexRiscv build
+doesn't implement or expose, hit during `time_init`'s clocksource
+registration. **`A7`'s `linux.robot` Renode gate passed clean this same
+morning** (this document, block A entry) — if this doesn't reproduce under
+emulation, it's another instance of the exact blind-spot pattern `07`'s own
+incident already established once (2026-08-07 log entries, "two more Renode
+blind spots"). Not yet investigated in the kernel source; the board's
+subsequent state took priority.
+
+**Recovery attempt went to SILENT, not back to the REPL.** Pulsed
+`board-reset.py` to return to boot1's REPL (docs/09's own stated recovery
+for anything in F, and by extension G) — silence. `boot1-cmd.py` bare
+nudge — silence. `board-triage.py`, which does its own independent reset —
+confirmed **SILENT: 0 bytes over 6s**, its verdict listing three
+indistinguishable causes: (a) no power, (b) broken probe-to-board link,
+(c) a boot0-level security abort hanging before any console exists.
+
+Ruled out (a) immediately: user measured GND(13)→VBUS(40) and
+GND(13)→3V3(36) both present, and separately measured ~24mA draw on a PPK2 —
+active execution current, not a fully halted/leakage-only chip. Ruled out
+(b) by inference rather than a fresh continuity check: the kernel boot
+transcript captured moments earlier is itself proof the exact same
+probe-to-board UART link was carrying clean, multi-kilobyte data seconds
+before the silence began, and nobody touched the wiring in between.
+
+**Built `tools/board-prog.py` to test (c) directly, rather than guess.**
+User wired a second ESPHome GPIO (14) to the board's PROG/EN pin
+(confirmed active-low, matching `get_key()`'s documented behavior — low
+reads as `KeyPress::Select`). New tool mirrors `board-reset.py`'s exact
+relay convention (ON = released/high, OFF = held/low) and adds a
+`prog-reset` composite action that shells out to `board-reset.py` for the
+actual RESET pulse, so each line still goes through the one script that
+owns it. This is a real, targeted test: PROG only changes boot1's
+auto-boot behavior (`main.rs:190–194`), so if the fault is upstream at
+boot0 — which never runs boot1's PROG-check code at all — holding PROG
+through a reset should make no difference. If instead the fault were
+somehow in boot1's own logic, PROG+RESET is *the* documented guaranteed
+path to the REPL regardless.
+
+Ran it twice (`docs/serial_traces/20260820_140651_prog-reset-test.log`,
+`…_prog-reset-test2.log`), confirming correct PROG assert/release via the
+switch's own state reads both times. **Both times: 0 bytes**, one over a
+12s window and once over 20s. This is the discriminating result: **the
+fault is upstream of boot1's PROG-check code, at boot0** — consistent with
+cause (c), and specifically raises the possibility this is a `Paranoid
+mode: a/b` desync (`bao1x.rs:62`, compared before any console exists, on
+every reset) that `docs/09`'s own tripwire section already flags as
+undetectable by exactly this kind of diff-after-a-reset check. Cannot be
+confirmed without a working console to read `audit` from, which is
+precisely the thing that's missing.
+
+**Stopping here.** Per `09`'s own Stop rules and H4's own precedent
+("treat it as a vendor FA sample"), this is not a state to keep
+improvising against with more resets. Everything captured and committed;
+awaiting a decision on how to proceed before touching the board again.

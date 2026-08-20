@@ -1,0 +1,11 @@
+Script started on 2026-08-20 12:15:37+02:00 [COMMAND="python3 /tmp/g3_g5_session.py" <not executed on terminal>]
+=== G3: sending 'boot' ===
+boot
+Command not recognized: boot
+Commands include: altboot, audit, boot, boardtype, bootwait, echo, idmode, ifr, localecho, lockdown, paranoid, reset, self_destruct, skipping, uf2
+
+
+=== found marker: None ===
+=== G4 STOP CONDITION: never reached login prompt within timeout ===
+
+Script done on 2026-08-20 12:16:23+02:00 [COMMAND_EXIT_CODE="1"]

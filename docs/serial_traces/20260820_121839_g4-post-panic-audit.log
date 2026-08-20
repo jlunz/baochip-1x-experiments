@@ -1,0 +1,7 @@
+Script started on 2026-08-20 12:18:39+02:00 [COMMAND="tools/boot1-cmd.py --port /dev/serial/by-id/usb-Raspberry_Pi_Debug_Probe__CMSIS-DAP__E6614103E7213E2F-if01 --baud 1000000 --wait 3 audit" <not executed on terminal>]
+--- sending: 'audit' ---
+--- reply ---
+(silence)
+
+
+Script done on 2026-08-20 12:18:43+02:00 [COMMAND_EXIT_CODE="0"]

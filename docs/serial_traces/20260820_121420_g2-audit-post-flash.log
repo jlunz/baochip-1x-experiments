@@ -1,0 +1,24 @@
+Script started on 2026-08-20 12:14:20+02:00 [COMMAND="tools/boot1-cmd.py --port /dev/serial/by-id/usb-Raspberry_Pi_Debug_Probe__CMSIS-DAP__E6614103E7213E2F-if01 --baud 1000000 --wait 3 audit" <not executed on terminal>]
+--- sending: 'audit' ---
+--- reply ---
+audit
+Board type reads as: Dabao
+Boot partition is: Ok(PrimaryPartition)
+Semver is: v0.10.0-61-g5397e1b48
+Description is: bao2-0
+Stepping is: A0
+Device serializer: c1943199-5b6fd680-4744adcf-53ce2ec3
+Public serial number: J0BTA9
+UUID: 9e1b144d-42a2ae56-8bbba96a-7aab2026
+Paranoid mode: 0/0
+Possible attack attempts: 0
+Revocations:
+Stage       key0     key1     key2     key3
+boot0       enabled  enabled  enabled  enabled  
+boot1       enabled  enabled  enabled  enabled  
+next stage  enabled  enabled  enabled  enabled  
+Boot0: key 0/0 (bao1) -> 60000000
+Boot1: key 0/0 (bao1) -> 60020000
+
+
+Script done on 2026-08-20 12:14:21+02:00 [COMMAND_EXIT_CODE="0"]

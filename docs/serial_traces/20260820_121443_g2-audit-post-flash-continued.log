@@ -1,0 +1,17 @@
+[12:14:43.086] stage: key 3/3 (dev ) -> 60060000
+[12:14:43.086] Erase proof: erased
+[12:14:43.087] auto-audit limit: 3
+[12:14:43.087] boot0 partition: a0680a73106600c4ece34f9393fc5c8eed4885e844b1b78b58fb3a8a299a885cd794c667a5e787083bce46bf7aff8d3f4affa6a93a38ba7b507bb0d47c70fa01
+[12:14:43.087] boot0 code only: 563802e7f10fd0ca0a1c700c6313eff624aa57d9cd88d3c33af4b720eff5480432e01c116925a324a96e12d92953d7cb6076ea4557a22058e1a61be4c2b4dee2
+[12:14:43.087] boot0 baobit toolchain: 441559d7e1984623ec0a52f60f90240c740b6c41
+[12:14:43.087] boot1 partition: a12eb17f37c88e834bb7beef3f5163f232824e8044fcbab3bb37c6ac54d10f78d61ace96da9ebfc03e3cc9514312f22b18a9481747fc0526dc89733789db3927
+[12:14:43.088] boot1 code only: e42b5aba61d98990ca24f5fc3b6cf012b14ea4d121f9bbe494baf4d9ae854d3ba88cdf26a288b88778826f816dc960c3ffe24b7c919108a3aca90f2dc4551a55
+[12:14:43.088] boot1 baobit toolchain: 441559d7e1984623ec0a52f60f90240c740b6c41
+[12:14:43.088] == IN DEVELOPER MODE ==
+[12:14:43.088] In-system keys have been generated
+[12:14:43.088] CM7 & debug confirmed fused off
+[12:14:43.088] Collateral erased
+[12:14:43.088] Boot1 receipts OK
+[12:14:43.088] Boot1 anti-rollback OK
+[12:14:43.089] ** System did not meet minimum requirements for security **
+
